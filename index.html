@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Lechucode - La Pizza Perdida</title>
+  <title>OwlBlood - La Pizza Sangrienta</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:#1a1a2e; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:monospace; overflow:hidden; }
@@ -2757,7 +2757,7 @@ class Game{
     for(const s of this.stars){ctx.globalAlpha=s.alpha;ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(s.x%CW,s.y,s.r,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;
     ctx.fillStyle="#F5E8A0";ctx.beginPath();ctx.arc(680,70,35,0,Math.PI*2);ctx.fill();
     ctx.fillStyle="#E8D880";ctx.beginPath();ctx.arc(695,62,30,0,Math.PI*2);ctx.fill();
-    ctx.save();ctx.font="bold 54px monospace";ctx.textAlign="center";ctx.shadowBlur=20;ctx.shadowColor="#FFD700";ctx.fillStyle="#FFD700";ctx.fillText("LECHUCODE",CW/2,100);ctx.shadowBlur=0;ctx.font="20px monospace";ctx.fillStyle="#FF7777";ctx.fillText("¡La Pizza Perdida!",CW/2,135);ctx.restore();
+    ctx.save();ctx.font="bold 58px monospace";ctx.textAlign="center";ctx.shadowBlur=24;ctx.shadowColor="#B3001B";ctx.fillStyle="#E8E8E8";ctx.fillText("OWLBLOOD",CW/2,100);ctx.shadowBlur=0;ctx.font="20px monospace";ctx.fillStyle="#FF4040";ctx.fillText("¡La Pizza Sangrienta!",CW/2,135);ctx.restore();
     const sp=OWL_SPECIES[this.menuOwlIndex];
     drawOwl(ctx,CW/2,245,true,sp,this.menuOwlTimer*2);
     ctx.font="bold 15px monospace";ctx.textAlign="center";ctx.fillStyle="#AADDFF";ctx.shadowBlur=6;ctx.shadowColor="#002244";ctx.fillText(sp.name,CW/2,298);ctx.fillStyle="#7799AA";ctx.font="11px monospace";ctx.fillText(`(${sp.nameEn}) ${this.menuOwlIndex+1}/${OWL_SPECIES.length}`,CW/2,316);ctx.shadowBlur=0;
