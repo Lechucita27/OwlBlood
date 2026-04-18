@@ -34,6 +34,8 @@ function buildLevel(){
   enemies.push(new JumpingEnemy(1490,280,1480,1580));
   enemies.push(new GhostEnemy(1700,280));
   enemies.push(new SpikeTrap(1060,370));
+  enemies.push(new RatEnemy(1200,376,1100,1520));
+  enemies.push(new SpiderEnemy(1400,40,60,220));
 
   // — Sección 3: Escalera —
   platforms.push(new Platform(1780,330,100,18));
@@ -49,6 +51,8 @@ function buildLevel(){
   enemies.push(new GhostEnemy(2600,230));
   enemies.push(new WaspEnemy(2200,120,2050,2580));
   enemies.push(new SpikeTrap(2370,370));
+  enemies.push(new DiveCrow(2250,100,2000,2580));
+  enemies.push(new SpiderEnemy(2500,40,50,210));
 
   // — Sección 4: Móviles —
   platforms.push(new MovingPlatform(2740,308,85,18,2740,2900,1.8));
@@ -73,6 +77,8 @@ function buildLevel(){
   enemies.push(new WaspEnemy(3400,130,3300,4050));
   enemies.push(new SpikeTrap(3600,370));
   enemies.push(new SpikeTrap(3900,370));
+  enemies.push(new RatEnemy(3500,376,3300,3950));
+  enemies.push(new DiveCrow(3750,90,3400,4050));
 
   // — Sección 6: Meta —
   platforms.push(new Platform(4070,348,100,18));

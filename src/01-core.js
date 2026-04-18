@@ -292,6 +292,22 @@ class SoundSystem{
         this.tone(95,0.18,"sawtooth",0.16,{layers:1,rev:0.2});
         this._delay(()=>this.noise(0.08,0.08,500,{rev:0.2}),20);
         break;
+      case"spider":
+        // Chasquido seco y estridente
+        this.noise(0.06,0.05,3800,{type:"highpass",q:3,rev:0.2});
+        this.tone(1400,0.06,"square",0.1,{layers:2,detune:12,rev:0.25});
+        this._delay(()=>this.tone(900,0.08,"sawtooth",0.09,{rev:0.3}),50);
+        break;
+      case"rat":
+        // Chillido agudo y rápido
+        this.sweep(1900,2400,0.12,"square",0.08,{layers:2,detune:20,rev:0.2});
+        this._delay(()=>this.sweep(2200,1600,0.1,"sawtooth",0.07,{rev:0.25}),70);
+        break;
+      case"divecrow":
+        // Graznido en picado: sweep descendente grave
+        this.sweep(900,260,0.28,"sawtooth",0.18,{layers:3,detune:18,rev:0.3});
+        this._delay(()=>this.noise(0.08,0.1,1400,{type:"bandpass",q:2,rev:0.3}),100);
+        break;
     }
   }
   playStomp(){
@@ -369,7 +385,7 @@ function drawRR(ctx,x,y,w,h,r){
 }
 
 // ============================================================
-//  14 ESPECIES
+//  20 ESPECIES
 // ============================================================
 const OWL_SPECIES = [
   { name:"Lechuza de Campanario", nameEn:"Barn Owl",           bodyColor:"#C8A96E",wingColor:"#8B6914",faceColor:"#FFF",   eyeColor:"#3D2B00",irisColor:"#8B6914",beakColor:"#E8D5A0",footColor:"#C8A96E", hasEarTufts:false,tuftColor:null,  hasStripes:false,stripeColor:null,hasSpots:false,spotColor:null,spotCount:0, hasLongLegs:false,scale:1.00,faceDisk:true, hasHBars:false,hBarColor:null,  hasEyebrows:false,bigEyes:false,longTufts:false,spectacles:false,surprisedBrows:false, attackStyle:"silent",    atkColor:"#FFF5C0", atkColor2:"#E8D5A0" },
@@ -386,4 +402,11 @@ const OWL_SPECIES = [
   { name:"Lechuza de Anteojos",   nameEn:"Spectacled Owl",     bodyColor:"#2C2010",wingColor:"#1A1008",faceColor:"#F5E8C0",eyeColor:"#000",   irisColor:"#F5D020",beakColor:"#C8A020",footColor:"#3A2A10", hasEarTufts:false,tuftColor:null,  hasStripes:false,stripeColor:null,hasSpots:false,spotColor:null,spotCount:0, hasLongLegs:false,scale:1.00,faceDisk:false,hasHBars:false,hBarColor:null,  hasEyebrows:false,bigEyes:false,longTufts:false,spectacles:true, surprisedBrows:false, attackStyle:"laser",     atkColor:"#00FFDD", atkColor2:"#FFFFFF" },
   { name:"Mochuelo Americano",    nameEn:"Saw-whet Owl",       bodyColor:"#A06040",wingColor:"#784020",faceColor:"#E8D0A0",eyeColor:"#000",   irisColor:"#F5D020",beakColor:"#C8A060",footColor:"#A06040", hasEarTufts:false,tuftColor:null,  hasStripes:false,stripeColor:null,hasSpots:true, spotColor:"#F5E0C0",spotCount:9, hasLongLegs:false,scale:0.58,faceDisk:false,hasHBars:false,hBarColor:null,  hasEyebrows:false,bigEyes:true, longTufts:false,spectacles:false,surprisedBrows:false, attackStyle:"drill",     atkColor:"#FFA040", atkColor2:"#F5E0C0" },
   { name:"Lechuza Boreal",        nameEn:"Boreal Owl",         bodyColor:"#8B7060",wingColor:"#6A5040",faceColor:"#F0E8D0",eyeColor:"#000",   irisColor:"#F5D020",beakColor:"#C8B090",footColor:"#8B7060", hasEarTufts:false,tuftColor:null,  hasStripes:false,stripeColor:null,hasSpots:true, spotColor:"#FFFAE0",spotCount:6, hasLongLegs:false,scale:0.80,faceDisk:true, hasHBars:false,hBarColor:null,  hasEyebrows:false,bigEyes:true, longTufts:false,spectacles:false,surprisedBrows:true, attackStyle:"star",      atkColor:"#FFFAE0", atkColor2:"#88CCFF" },
+  // --- 6 nuevas especies ---
+  { name:"Búho Pescador Blakiston",nameEn:"Blakiston's Fish Owl",bodyColor:"#5A4028",wingColor:"#3A2818",faceColor:"#A08058",eyeColor:"#000",   irisColor:"#FFC040",beakColor:"#C8A050",footColor:"#5A4028", hasEarTufts:true, tuftColor:"#2A1808",hasStripes:true, stripeColor:"#3A2818",hasSpots:true, spotColor:"#D4B080",spotCount:5, hasLongLegs:false,scale:1.12,faceDisk:false,hasHBars:true, hBarColor:"#3A2818",hasEyebrows:false,bigEyes:false,longTufts:true, spectacles:false,surprisedBrows:false, attackStyle:"power",     atkColor:"#FFC040", atkColor2:"#AA5510" },
+  { name:"Mochuelo Patagónico",   nameEn:"Austral Pygmy Owl",  bodyColor:"#7A5A3A",wingColor:"#5A3E20",faceColor:"#D4A878",eyeColor:"#000",   irisColor:"#FFD700",beakColor:"#C89050",footColor:"#7A5A3A", hasEarTufts:false,tuftColor:null,  hasStripes:true, stripeColor:"#3A2810",hasSpots:false,spotColor:null,spotCount:0, hasLongLegs:false,scale:0.68,faceDisk:false,hasHBars:false,hBarColor:null,  hasEyebrows:true, bigEyes:false,longTufts:false,spectacles:false,surprisedBrows:false, attackStyle:"jab",       atkColor:"#FFD700", atkColor2:"#FF6600" },
+  { name:"Cárabo Uralense",       nameEn:"Ural Owl",           bodyColor:"#D8CFBF",wingColor:"#A89878",faceColor:"#F5F0E0",eyeColor:"#000",   irisColor:"#20140A",beakColor:"#C8B088",footColor:"#B8A888", hasEarTufts:false,tuftColor:null,  hasStripes:true, stripeColor:"#6A5030",hasSpots:false,spotColor:null,spotCount:0, hasLongLegs:false,scale:1.10,faceDisk:true, hasHBars:true, hBarColor:"#8A7050",hasEyebrows:false,bigEyes:false,longTufts:false,spectacles:false,surprisedBrows:false, attackStyle:"ice",       atkColor:"#E8F5FF", atkColor2:"#88AABB" },
+  { name:"Lechuza Enmascarada",   nameEn:"Australian Masked Owl",bodyColor:"#3A2820",wingColor:"#1A1008",faceColor:"#F5E8D0",eyeColor:"#000",  irisColor:"#4A2A10",beakColor:"#A06028",footColor:"#3A2820", hasEarTufts:false,tuftColor:null,  hasStripes:false,stripeColor:null,hasSpots:true, spotColor:"#8A6040",spotCount:8, hasLongLegs:false,scale:1.00,faceDisk:true, hasHBars:false,hBarColor:null,  hasEyebrows:false,bigEyes:false,longTufts:false,spectacles:false,surprisedBrows:false, attackStyle:"shadow",    atkColor:"#AA20FF", atkColor2:"#330055" },
+  { name:"Tecolote Bajeño",       nameEn:"Ferruginous Pygmy Owl",bodyColor:"#A84820",wingColor:"#7A2810",faceColor:"#E8B880",eyeColor:"#000",  irisColor:"#F5D020",beakColor:"#D48020",footColor:"#A84820", hasEarTufts:false,tuftColor:null,  hasStripes:true, stripeColor:"#5A1808",hasSpots:false,spotColor:null,spotCount:0, hasLongLegs:true, scale:0.72,faceDisk:false,hasHBars:false,hBarColor:null,  hasEyebrows:false,bigEyes:true, longTufts:false,spectacles:false,surprisedBrows:false, attackStyle:"drill",     atkColor:"#FF7020", atkColor2:"#FFD080" },
+  { name:"Búho Pigmeo Norteño",   nameEn:"Northern Pygmy Owl", bodyColor:"#5A4838",wingColor:"#3A2818",faceColor:"#C8B090",eyeColor:"#000",   irisColor:"#F5D020",beakColor:"#A88848",footColor:"#5A4838", hasEarTufts:false,tuftColor:null,  hasStripes:false,stripeColor:null,hasSpots:true, spotColor:"#FFFFFF",spotCount:12,hasLongLegs:false,scale:0.62,faceDisk:false,hasHBars:false,hBarColor:null,  hasEyebrows:false,bigEyes:true, longTufts:false,spectacles:false,surprisedBrows:true,  attackStyle:"flurry",    atkColor:"#FFFFFF", atkColor2:"#C8E0FF" },
 ];

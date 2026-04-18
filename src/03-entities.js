@@ -965,6 +965,234 @@ class WaspEnemy extends Enemy{
   }
 }
 
+// --- Araña: cuelga de una tela, baja y sube ---
+class SpiderEnemy extends Enemy{
+  constructor(x,ceilY,minY,maxY){
+    super(x,ceilY,x,x);
+    this.w=22;this.h=18;this.ceilY=ceilY;this.minY=minY;this.maxY=maxY;
+    this.vx=0;this.phase=Math.random()*Math.PI*2;this.soundId="spider";
+    this.damage=1;
+  }
+  update(platforms,px){
+    this.animFrame++;this.updateAttack();
+    // Movimiento senoidal vertical entre minY y maxY
+    this.phase+=0.035;
+    const t=(Math.sin(this.phase)+1)/2; // 0..1
+    this.y=lerp(this.minY,this.maxY,t);
+    // Baja/sube más rápido si el jugador está cerca horizontalmente
+    const dx=Math.abs(px-(this.x+this.w/2));
+    if(dx<90) this.phase+=0.03;
+  }
+  draw(ctx){
+    if(!this.alive)return;
+    // Hilo desde el techo
+    ctx.strokeStyle="rgba(220,220,255,0.55)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(this.x+this.w/2,this.ceilY);ctx.lineTo(this.x+this.w/2,this.y+3);ctx.stroke();
+    // Cuerpo
+    ctx.save();ctx.translate(this.x+this.w/2,this.y+10);
+    ctx.fillStyle="#1A0A20";ctx.beginPath();ctx.ellipse(0,0,10,7,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#2A1030";ctx.beginPath();ctx.arc(-5,-2,4,0,Math.PI*2);ctx.fill();
+    // Ojos
+    ctx.fillStyle="#FF2060";
+    for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j+=2){
+      ctx.beginPath();ctx.arc(-5+i*1.5,-2+j*1.2,0.9,0,Math.PI*2);ctx.fill();
+    }
+    // Patas (8)
+    const wig=Math.sin(this.animFrame*0.3)*2;
+    ctx.strokeStyle="#1A0A20";ctx.lineWidth=1.8;ctx.lineCap="round";
+    for(let i=0;i<4;i++){
+      const a=0.4+i*0.4;
+      ctx.beginPath();
+      ctx.moveTo(-3,0);ctx.lineTo(-10-i*2,4+wig+i);ctx.lineTo(-12-i*2,10+wig);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(3,0);ctx.lineTo(10+i*2,4-wig+i);ctx.lineTo(12+i*2,10-wig);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // Araña: ataque mordisco venenoso
+  drawAttackFx(ctx){
+    if(!this.atk)return;
+    const {frame,max,tx,ty}=this.atk;const t=frame/max;
+    ctx.save();ctx.translate(tx,ty);
+    // Colmillos cruzados
+    ctx.globalAlpha=Math.sin(t*Math.PI);
+    ctx.strokeStyle="#9020FF";ctx.lineWidth=3;ctx.lineCap="round";
+    ctx.beginPath();ctx.moveTo(-8,-8);ctx.lineTo(8,8);ctx.moveTo(-8,8);ctx.lineTo(8,-8);ctx.stroke();
+    // Gotas de veneno
+    if(t>0.4){
+      ctx.fillStyle="#5A00AA";
+      for(let i=0;i<3;i++){
+        const d=(t-0.4)*25+i*5;
+        ctx.beginPath();ctx.arc((i-1)*6,d,1.8,0,Math.PI*2);ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// --- Rata: rápido, pequeño, huye cuando recibe el ataque ---
+class RatEnemy extends Enemy{
+  constructor(x,y,ps,pe){
+    super(x,y,ps,pe);
+    this.w=24;this.h=16;this.vx=2.6;this.soundId="rat";this.damage=0.5;
+  }
+  update(platforms,px){
+    this.animFrame++;this.applyGravity();
+    // Correr rápido, y si el jugador está detrás, cambiar dirección
+    const myCx=this.x+this.w/2;
+    if(Math.abs(px-myCx)<180){
+      const want=px<myCx?1:-1; // huir
+      if(want!==this.dir) this.dir=want;
+      this.vx=3.4;
+    } else this.vx=2.6;
+    this.resolveCollisions(platforms);this.updateAttack();
+  }
+  draw(ctx){
+    if(!this.alive)return;
+    ctx.save();ctx.translate(this.x+12,this.y+8);if(this.dir<0)ctx.scale(-1,1);
+    // Cuerpo alargado
+    ctx.fillStyle="#6A5040";ctx.beginPath();ctx.ellipse(0,3,12,6,0,0,Math.PI*2);ctx.fill();
+    // Cabeza
+    ctx.fillStyle="#7A5848";ctx.beginPath();ctx.arc(9,0,5.5,0,Math.PI*2);ctx.fill();
+    // Orejas redondas
+    ctx.fillStyle="#5A3830";
+    ctx.beginPath();ctx.arc(6,-5,2.2,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(10,-5.5,2.2,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#F090A0";
+    ctx.beginPath();ctx.arc(6,-5,1.2,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(10,-5.5,1.2,0,Math.PI*2);ctx.fill();
+    // Ojo negro y hocico
+    ctx.fillStyle="#000";ctx.beginPath();ctx.arc(11,-1,1.1,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#F090A0";ctx.beginPath();ctx.arc(14,1.5,1.4,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#000";ctx.beginPath();ctx.arc(14.5,1.5,0.5,0,Math.PI*2);ctx.fill();
+    // Bigotes
+    ctx.strokeStyle="rgba(240,240,240,0.6)";ctx.lineWidth=0.6;
+    for(let i=-1;i<=1;i++){ctx.beginPath();ctx.moveTo(13,2+i*0.6);ctx.lineTo(19,1+i*1.5);ctx.stroke();}
+    // Cola serpenteante
+    const w=Math.sin(this.animFrame*0.4)*3;
+    ctx.strokeStyle="#6A5040";ctx.lineWidth=2;ctx.lineCap="round";
+    ctx.beginPath();ctx.moveTo(-11,3);ctx.quadraticCurveTo(-18,3+w,-22,1-w);ctx.stroke();
+    // Patitas corriendo
+    const run=Math.sin(this.animFrame*0.6)*3;
+    ctx.strokeStyle="#5A3830";ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(-4,8);ctx.lineTo(-4-run,12);ctx.moveTo(4,8);ctx.lineTo(4+run,12);ctx.stroke();
+    ctx.restore();
+  }
+  // Rata: arañazo + dientes
+  drawAttackFx(ctx){
+    if(!this.atk)return;
+    const {frame,max,tx,ty}=this.atk;const t=frame/max;
+    ctx.save();ctx.translate(tx,ty);
+    ctx.globalAlpha=Math.sin(t*Math.PI);
+    ctx.strokeStyle="#F0E0C0";ctx.lineWidth=2;ctx.lineCap="round";
+    // 3 líneas de arañazo rápidas
+    for(let i=-1;i<=1;i++){
+      ctx.beginPath();ctx.moveTo(-10,i*3);ctx.lineTo(10,i*3+t*4);ctx.stroke();
+    }
+    // Dientes blancos
+    if(t>0.3){
+      ctx.globalAlpha=1-(t-0.3)/0.7;
+      ctx.fillStyle="#FFF";
+      ctx.beginPath();ctx.moveTo(-3,-4);ctx.lineTo(-1,1);ctx.lineTo(1,-4);ctx.fill();
+      ctx.beginPath();ctx.moveTo(1,-4);ctx.lineTo(3,1);ctx.lineTo(5,-4);ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// --- Cuervo en Picado: vuela alto y se lanza en diagonal cuando jugador está debajo ---
+class DiveCrow extends Enemy{
+  constructor(x,y,ps,pe){
+    super(x,y,ps,pe);
+    this.w=28;this.h=20;this.vx=1.6;
+    this.baseY=y;this.diving=false;this.diveTimer=0;
+    this.diveCool=rnd(90,180);this.soundId="divecrow";
+    this.damage=1;
+  }
+  update(platforms,px){
+    this.animFrame++;this.updateAttack();
+    if(this.diving){
+      // Diagonal descendente; si choca con plataforma o pasa px, vuelve
+      this.diveTimer++;
+      this.y+=5;this.x+=this.dir*3.5;
+      if(this.y>this.baseY+160 || this.diveTimer>60){
+        this.diving=false;this.diveTimer=0;
+        this.diveCool=rnd(110,200);
+      }
+    } else {
+      // Patrulla horizontal en altura
+      this.y=lerp(this.y,this.baseY+Math.sin(this.animFrame*0.06)*8,0.1);
+      this.x+=this.vx*this.dir;
+      if(this.x<=this.patrolStart){this.x=this.patrolStart;this.dir=1;}
+      if(this.x>=this.patrolEnd){this.x=this.patrolEnd;this.dir=-1;}
+      this.diveCool--;
+      // Si jugador cerca verticalmente bajo el cuervo, inicia picado
+      const dx=px-(this.x+this.w/2);
+      if(this.diveCool<=0 && Math.abs(dx)<60){
+        this.diving=true;this.diveTimer=0;
+        this.dir = dx>=0?1:-1;
+        SFX.playEnemy("divecrow");
+      }
+    }
+  }
+  draw(ctx){
+    if(!this.alive)return;
+    ctx.save();ctx.translate(this.x+14,this.y+10);if(this.dir<0)ctx.scale(-1,1);
+    // Cuerpo
+    const ang = this.diving?0.7:0;
+    ctx.rotate(ang);
+    ctx.fillStyle="#151525";
+    ctx.beginPath();ctx.ellipse(0,0,13,8,0,0,Math.PI*2);ctx.fill();
+    // Cabeza
+    ctx.beginPath();ctx.arc(10,-3,6,0,Math.PI*2);ctx.fill();
+    // Pico amarillo-naranja largo
+    ctx.fillStyle="#E8A040";
+    ctx.beginPath();ctx.moveTo(16,-3);ctx.lineTo(22,-1);ctx.lineTo(16,1);ctx.fill();
+    // Ojo
+    ctx.fillStyle="#FFD700";ctx.beginPath();ctx.arc(11,-4,1.8,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#000";ctx.beginPath();ctx.arc(11.5,-4,0.9,0,Math.PI*2);ctx.fill();
+    // Alas: abiertas y aleteando
+    const flap=this.diving?-0.6:Math.sin(this.animFrame*0.35)*0.5;
+    ctx.fillStyle="#0A0A18";
+    ctx.save();ctx.rotate(flap);
+    ctx.beginPath();ctx.ellipse(-4,-4,10,4,-0.3,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+    ctx.save();ctx.rotate(-flap);
+    ctx.beginPath();ctx.ellipse(-4,4,10,4,0.3,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+    ctx.restore();
+    // Línea de trayectoria durante picado
+    if(this.diving){
+      ctx.save();
+      ctx.strokeStyle="rgba(255,60,60,0.35)";ctx.lineWidth=2;ctx.setLineDash([4,3]);
+      ctx.beginPath();ctx.moveTo(this.x+14,this.y+10);
+      ctx.lineTo(this.x+14+this.dir*40,this.y+10+60);
+      ctx.stroke();ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+  // Cuervo diver: pico en triángulo
+  drawAttackFx(ctx){
+    if(!this.atk)return;
+    const {frame,max,tx,ty}=this.atk;const t=frame/max;
+    ctx.save();ctx.translate(tx,ty);
+    ctx.globalAlpha=Math.sin(t*Math.PI);
+    ctx.fillStyle="#E8A040";
+    ctx.beginPath();ctx.moveTo(-12,-8);ctx.lineTo(8+t*8,0);ctx.lineTo(-12,8);ctx.fill();
+    // Plumas cayendo
+    ctx.fillStyle="#151525";ctx.globalAlpha*=0.8;
+    for(let i=0;i<4;i++){
+      const d=t*20+i*3;const a=(i-1.5)*0.25;
+      ctx.beginPath();
+      ctx.save();ctx.translate(Math.cos(a)*10,Math.sin(a)*10+d);ctx.rotate(a);
+      ctx.ellipse(0,0,3,1,0,0,Math.PI*2);ctx.fill();ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
 // --- Trampa de Pinchos (NUEVO - estática, inmune a todo, hiere al tocar) ---
 class SpikeTrap{
   constructor(x,y){
