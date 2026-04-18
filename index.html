@@ -3068,9 +3068,9 @@ class Game{
     this.camera=new Camera();this.timer=0;this.state="playing";
     this.winParticles=[];this.companions=[];this.secretBlock=null;
     this.blockTimer=0;this.blockFlash=0;
-    // 30% de probabilidad: la lechuza aparece con 3 crías que duran toda la partida
+    // 50% de probabilidad: la lechuza aparece con 3 crías que duran toda la partida
     this.chicks=[];
-    if(Math.random()<0.3){
+    if(Math.random()<0.5){
       for(let i=0;i<3;i++) this.chicks.push(new Chick(sp,i));
     }
     window._gameRef=this;
