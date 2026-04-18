@@ -2225,7 +2225,7 @@ class Player{
     this.spawnKillFor(enemy,type);
   }
   spawnKillFor(enemy,type){
-    const maxFrames = type==="comer" ? 75 : (type==="alimentar" ? 110 : 55);
+    const maxFrames = type==="comer" ? 135 : (type==="alimentar" ? 110 : 55);
     this.killFx.push({
       x:enemy.x+enemy.w/2, y:enemy.y+enemy.h/2,
       ex:enemy.x, ey:enemy.y, ew:enemy.w, eh:enemy.h,
@@ -2289,11 +2289,72 @@ class Player{
     for(const k of this.killFx){
       k.frame++;
       if(k.type==="comer"){
-        // Picotazo cada 15 frames
-        if(k.frame===8||k.frame===23||k.frame===38||k.frame===53){
-          k.splats.push({x:k.x+rnd(-10,10),y:k.y+rnd(-4,8),r:rnd(2,4),a:1});
-          SFX.tone(900,0.05,"square",0.08,{layers:2,detune:20,rev:0.2});
-          SFX.noise(0.05,0.06,1400,{type:"bandpass",q:3});
+        // Inicializar gibs/chunks y puddle la primera vez
+        if(k.frame===1){
+          k.gibs=[];
+          k.puddle=[]; // charcos que crecen
+          k.drips=[]; // gotas que caen del pico
+          k.chunks=[]; // pedazos arrancados
+        }
+        // Cada ciclo de pico (cada 18 frames) dispara un mordisco
+        const bitePhases=[10,28,46,64,82,100];
+        if(bitePhases.includes(k.frame)){
+          const idx=bitePhases.indexOf(k.frame);
+          // Splats alrededor de la presa
+          for(let i=0;i<4;i++){
+            k.splats.push({x:k.x+rnd(-18,18),y:k.y+rnd(-6,12),r:rnd(2.5,5),a:1});
+          }
+          // Charco que crece bajo la presa
+          k.puddle.push({x:k.x+rnd(-20,20),y:k.y+k.eh*0.35+rnd(-2,4),r:rnd(6,12),a:0.85});
+          // Gibs voladores
+          const gibCount=idx<3?3:2;
+          for(let i=0;i<gibCount;i++){
+            const ang=rnd(-Math.PI*0.8,-Math.PI*0.2);
+            k.gibs.push({
+              x:k.x, y:k.y,
+              vx:Math.cos(ang)*rnd(1.5,4),
+              vy:Math.sin(ang)*rnd(2.5,5),
+              r:rnd(1.5,3.5), life:40,
+              col:pick(["#6A0000","#8A0000","#AA0000","#5A0008"])
+            });
+          }
+          // Chunk grande que la lechuza arranca
+          if(idx<4){
+            k.chunks.push({
+              x:k.x+rnd(-4,4), y:k.y-8,
+              vx:(k.facingRight?1:-1)*rnd(1,2.5), vy:-rnd(3,5),
+              r:rnd(3,5), life:45, rot:0, vr:rnd(-0.3,0.3)
+            });
+          }
+          // Sonidos: pico clack + sangre húmeda + tirón
+          SFX.tone(900+idx*40,0.06,"square",0.09,{layers:2,detune:25,rev:0.25});
+          SFX.noise(0.08,0.08,800,{type:"lowpass",q:1.5,rev:0.3});
+          SFX.tone(180,0.1,"sawtooth",0.07,{layers:1});
+          if(idx%2===0) SFX.tone(420,0.12,"triangle",0.06,{layers:2,detune:15,rev:0.35});
+        }
+        // Drips constantes del pico mientras come
+        if(k.frame>=10 && k.frame<110 && k.frame%4===0){
+          k.drips.push({x:k.x+(k.facingRight?8:-8)+rnd(-2,2),y:k.y-4,vy:0.5,life:30});
+        }
+        // Actualizar gibs
+        if(k.gibs){
+          for(const g of k.gibs){g.x+=g.vx;g.y+=g.vy;g.vy+=0.25;g.life--;
+            // Al aterrizar dejar splat
+            if(g.life===1){k.splats.push({x:g.x,y:g.y,r:g.r*0.9,a:0.9});}
+          }
+          k.gibs=k.gibs.filter(g=>g.life>0);
+        }
+        if(k.chunks){
+          for(const c of k.chunks){c.x+=c.vx;c.y+=c.vy;c.vy+=0.25;c.rot+=c.vr;c.life--;
+            if(c.life===1){k.splats.push({x:c.x,y:c.y,r:c.r*1.2,a:0.95});}
+          }
+          k.chunks=k.chunks.filter(c=>c.life>0);
+        }
+        if(k.drips){
+          for(const d of k.drips){d.y+=d.vy;d.vy+=0.35;d.life--;
+            if(d.life===1){k.puddle.push({x:d.x,y:d.y,r:rnd(2,4),a:0.8});}
+          }
+          k.drips=k.drips.filter(d=>d.life>0);
         }
       } else if(k.type==="garras"){
         if(k.frame===6||k.frame===16||k.frame===26){
@@ -2505,32 +2566,204 @@ class Player{
     }
     ctx.globalAlpha=1;
     if(k.type==="comer"){
-      // La lechuza se inclina sobre la presa y la picotea
-      const fade=Math.max(0,1-Math.max(0,t-0.75)/0.25);
-      // Silueta del cadáver encogiéndose
+      const fade=Math.max(0,1-Math.max(0,t-0.85)/0.15);
+      // --- 1) Charco de sangre creciendo bajo la presa (capa más baja) ---
+      if(k.puddle){
+        for(const p of k.puddle){
+          ctx.save();
+          ctx.globalAlpha=p.a;
+          // Sombra del charco
+          const grd=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*1.6);
+          grd.addColorStop(0,"#8A0000");
+          grd.addColorStop(0.6,"#5A0008");
+          grd.addColorStop(1,"rgba(60,0,0,0)");
+          ctx.fillStyle=grd;
+          ctx.beginPath();
+          ctx.ellipse(p.x,p.y,p.r*1.6,p.r*0.7,0,0,Math.PI*2);
+          ctx.fill();
+          // Centro más oscuro
+          ctx.fillStyle="#4A0004";
+          ctx.beginPath();
+          ctx.ellipse(p.x,p.y,p.r*0.9,p.r*0.4,0,0,Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      // --- 2) Silueta del cadáver rasgado (con vísceras expuestas) ---
       ctx.save();
-      const shrink=Math.max(0.2,1-t*0.9);
-      ctx.globalAlpha=Math.max(0.25,1-t)*0.8;
-      ctx.fillStyle="#2A1A10";
+      const shrink=Math.max(0.15,1-t*0.95);
+      ctx.globalAlpha=Math.max(0.25,1-t)*0.9;
+      // Cuerpo base
+      ctx.fillStyle="#1C0F08";
       ctx.beginPath();
-      ctx.ellipse(k.x,k.y+k.eh*0.3,(k.ew*0.55)*shrink,(k.eh*0.3)*shrink,0,0,Math.PI*2);
+      ctx.ellipse(k.x,k.y+k.eh*0.28,(k.ew*0.58)*shrink,(k.eh*0.32)*shrink,0,0,Math.PI*2);
       ctx.fill();
-      ctx.restore();
-      // Lechuza comiendo: dibujamos la lechuza encima, con un "peck" oscilante
-      const peckPhase=Math.floor(k.frame/15);
-      const peckT=(k.frame%15)/15;
-      const peckDip=Math.sin(peckT*Math.PI)*8;
-      ctx.save();
-      ctx.globalAlpha=fade;
-      const ox=k.x, oy=k.y-14+peckDip;
-      drawOwl(ctx,ox,oy,k.facingRight,sp,k.frame*2,fade);
-      // Chorros pequeños en cada picotazo
-      if(peckT<0.35){
-        ctx.translate(ox+(k.facingRight?6:-6),oy+10);
-        ctx.rotate(k.facingRight?0.3:Math.PI-0.3);
-        bloodSpray(ctx,0,0,0,10+peckT*20,4);
+      // Vísceras expuestas (rojo interior visible conforme progresa)
+      if(k.frame>15){
+        ctx.fillStyle="#7A0008";
+        const vt=Math.min(1,(k.frame-15)/40);
+        ctx.beginPath();
+        ctx.ellipse(k.x+(k.facingRight?-3:3),k.y+k.eh*0.22,
+          (k.ew*0.32)*shrink*vt,(k.eh*0.2)*shrink*vt,0,0,Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle="#B00010";
+        ctx.beginPath();
+        ctx.ellipse(k.x+(k.facingRight?-3:3),k.y+k.eh*0.22,
+          (k.ew*0.18)*shrink*vt,(k.eh*0.12)*shrink*vt,0,0,Math.PI*2);
+        ctx.fill();
+      }
+      // Heridas abiertas (rasgaduras irregulares)
+      if(k.frame>20){
+        ctx.strokeStyle="#3A0004";
+        ctx.lineWidth=1.5;
+        for(let i=0;i<3;i++){
+          const a=(i/3)*Math.PI*2+k.frame*0.02;
+          const r1=(k.ew*0.2)*shrink, r2=(k.ew*0.42)*shrink;
+          ctx.beginPath();
+          ctx.moveTo(k.x+Math.cos(a)*r1, k.y+k.eh*0.28+Math.sin(a)*r1*0.5);
+          ctx.lineTo(k.x+Math.cos(a)*r2, k.y+k.eh*0.28+Math.sin(a)*r2*0.5);
+          ctx.stroke();
+        }
       }
       ctx.restore();
+      // --- 3) Chunks voladores (pedazos de carne) ---
+      if(k.chunks){
+        for(const c of k.chunks){
+          ctx.save();
+          ctx.translate(c.x,c.y);
+          ctx.rotate(c.rot);
+          ctx.globalAlpha=Math.min(1,c.life/30);
+          // Pedazo principal (carne)
+          ctx.fillStyle="#8A0010";
+          ctx.beginPath();
+          ctx.ellipse(0,0,c.r,c.r*0.65,0,0,Math.PI*2);
+          ctx.fill();
+          // Borde oscuro
+          ctx.strokeStyle="#3A0004";ctx.lineWidth=0.8;
+          ctx.stroke();
+          // Highlight
+          ctx.fillStyle="#C80020";
+          ctx.beginPath();
+          ctx.ellipse(-c.r*0.3,-c.r*0.3,c.r*0.35,c.r*0.2,0,0,Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+          // Estela de gotas
+          ctx.save();
+          ctx.globalAlpha=0.4;
+          ctx.fillStyle="#6A0000";
+          ctx.beginPath();
+          ctx.arc(c.x-c.vx*2,c.y-c.vy*2,c.r*0.4,0,Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      // --- 4) Gibs pequeños (salpicaduras voladoras) ---
+      if(k.gibs){
+        for(const g of k.gibs){
+          ctx.save();
+          ctx.globalAlpha=Math.min(1,g.life/30);
+          ctx.fillStyle=g.col;
+          ctx.beginPath();
+          ctx.arc(g.x,g.y,g.r,0,Math.PI*2);
+          ctx.fill();
+          // Highlight
+          ctx.fillStyle="#D00020";
+          ctx.beginPath();
+          ctx.arc(g.x-0.6,g.y-0.6,g.r*0.4,0,Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      // --- 5) Gotas cayendo del pico ---
+      if(k.drips){
+        for(const d of k.drips){
+          ctx.save();
+          ctx.globalAlpha=Math.min(1,d.life/20);
+          ctx.fillStyle="#8A0000";
+          ctx.beginPath();
+          ctx.ellipse(d.x,d.y,1.2,2.4,0,0,Math.PI*2);
+          ctx.fill();
+          ctx.fillStyle="#C00010";
+          ctx.beginPath();
+          ctx.arc(d.x-0.3,d.y-0.5,0.8,0,Math.PI*2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      // --- 6) Lechuza comiendo con pico ensangrentado ---
+      const peckT=(k.frame%18)/18;
+      const peckDip=Math.sin(peckT*Math.PI)*12;
+      const tug=Math.sin(peckT*Math.PI*2)*(k.facingRight?4:-4);
+      ctx.save();
+      ctx.globalAlpha=fade;
+      const ox=k.x+tug, oy=k.y-16+peckDip;
+      drawOwl(ctx,ox,oy,k.facingRight,sp,k.frame*2,fade);
+      // Pico ensangrentado: mancha roja sobre el pico
+      ctx.save();
+      ctx.translate(ox+(k.facingRight?4:-4), oy+8);
+      ctx.fillStyle="#8A0000";
+      ctx.beginPath();
+      ctx.ellipse(0,0,5,3,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle="#C00010";
+      ctx.beginPath();
+      ctx.arc(-1,-0.5,1.5,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      // Gota colgando del pico mientras tira
+      if(peckT>0.3 && peckT<0.7){
+        ctx.save();
+        ctx.fillStyle="#8A0000";
+        ctx.translate(ox+(k.facingRight?8:-8), oy+10);
+        ctx.beginPath();
+        ctx.ellipse(0,peckT*6,1.4,3,0,0,Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+      // Hebra de carne tirada entre pico y cuerpo (durante el "tug")
+      if(peckT>0.35 && peckT<0.65){
+        ctx.save();
+        ctx.strokeStyle="#9A0010";
+        ctx.lineWidth=1.8;
+        ctx.lineCap="round";
+        ctx.beginPath();
+        const bx=ox+(k.facingRight?6:-6), by=oy+9;
+        const ex=k.x, ey=k.y+2;
+        const mx=(bx+ex)/2+Math.sin(peckT*Math.PI)*3;
+        const my=(by+ey)/2+4;
+        ctx.moveTo(bx,by);
+        ctx.quadraticCurveTo(mx,my,ex,ey);
+        ctx.stroke();
+        ctx.strokeStyle="#C80020";
+        ctx.lineWidth=0.8;
+        ctx.stroke();
+        ctx.restore();
+      }
+      // Spray adicional cuando arranca pedazo
+      if(peckT<0.15){
+        ctx.translate(ox+(k.facingRight?6:-6),oy+10);
+        ctx.rotate(k.facingRight?0.3:Math.PI-0.3);
+        bloodSpray(ctx,0,0,0,14+peckT*24,6);
+      }
+      ctx.restore();
+      // --- 7) Al final: pequeños huesos expuestos ---
+      if(t>0.75){
+        const boneFade=Math.min(1,(t-0.75)/0.2);
+        ctx.save();
+        ctx.globalAlpha=boneFade*fade;
+        ctx.fillStyle="#E8DDC0";
+        // Costillas estilizadas
+        for(let i=-1;i<=1;i++){
+          ctx.beginPath();
+          ctx.ellipse(k.x+i*4,k.y+k.eh*0.2,1,3,0,0,Math.PI*2);
+          ctx.fill();
+        }
+        // Cráneo pequeño
+        ctx.beginPath();
+        ctx.arc(k.x+(k.facingRight?-8:8),k.y+k.eh*0.28,3,0,Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
     } else if(k.type==="garras"){
       // Garras: 3 zarpazos diagonales cruzados + chorros de sangre
       const slashes=[
