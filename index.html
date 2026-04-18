@@ -1414,6 +1414,136 @@ class Camera{
 // ============================================================
 //  PLATFORM  (bioma-aware)
 // ============================================================
+// ============================================================
+//  ARMAS (Battle Royale)
+// ============================================================
+const WEAPON_TYPES=[
+  {id:"pistola",    name:"PISTOLA",    ammo:14, dmg:1,   fireRate:10, spd:11, spread:0.03, pellets:1, color:"#DDD",   barrelL:14, size:0.9, sound:"pistol"},
+  {id:"escopeta",   name:"ESCOPETA",   ammo:8,  dmg:1,   fireRate:28, spd:10, spread:0.22, pellets:6, color:"#8B4513",barrelL:16, size:1.1, sound:"shotgun"},
+  {id:"rifle",      name:"RIFLE",      ammo:20, dmg:2,   fireRate:16, spd:14, spread:0.01, pellets:1, color:"#222",   barrelL:20, size:1.2, sound:"rifle"},
+  {id:"smg",        name:"SMG",        ammo:40, dmg:1,   fireRate:4,  spd:12, spread:0.09, pellets:1, color:"#555",   barrelL:12, size:0.8, sound:"smg"},
+  {id:"uzi",        name:"UZI SANGRE", ammo:60, dmg:1,   fireRate:3,  spd:13, spread:0.12, pellets:1, color:"#AA0020",barrelL:10, size:0.8, sound:"smg"},
+];
+
+class WeaponPickup{
+  constructor(type,x,y){
+    this.type=type;this.x=x;this.y=y;this.w=28;this.h=18;
+    this.t=0;this.picked=false;this.vy=-2;
+  }
+  update(){
+    this.t++;
+    // Pequeño bounce hasta el suelo
+    if(this.vy<4){this.vy+=0.3;this.y+=this.vy;if(this.y>372){this.y=372;this.vy=-this.vy*0.35;if(Math.abs(this.vy)<0.4)this.vy=0;}}
+  }
+  getBounds(){return{x:this.x-14,y:this.y-9,w:this.w,h:this.h};}
+  draw(ctx){
+    ctx.save();
+    const bob=Math.sin(this.t*0.06)*2;
+    ctx.translate(this.x,this.y+bob);
+    // Halo
+    const g=ctx.createRadialGradient(0,0,4,0,0,22);
+    g.addColorStop(0,"rgba(255,220,80,0.6)");
+    g.addColorStop(1,"rgba(255,100,0,0)");
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,22,0,Math.PI*2);ctx.fill();
+    // Arma simple
+    ctx.fillStyle=this.type.color;
+    ctx.fillRect(-10,-3,20,6);
+    ctx.fillStyle="#444";
+    ctx.fillRect(-12,-1,4,8);
+    // Cañón
+    ctx.fillStyle="#222";
+    ctx.fillRect(6,-1.5,this.type.barrelL*0.4,3);
+    // Etiqueta
+    ctx.fillStyle="#FFE040";
+    ctx.font="bold 9px monospace";
+    ctx.textAlign="center";
+    ctx.fillText(this.type.name,0,-12);
+    ctx.restore();
+  }
+}
+
+class Bullet{
+  constructor(x,y,vx,vy,dmg,fromPlayer=true){
+    this.x=x;this.y=y;this.vx=vx;this.vy=vy;this.dmg=dmg;
+    this.life=60;this.alive=true;this.fromPlayer=fromPlayer;
+    this.trail=[];
+  }
+  update(enemies,game){
+    this.trail.push({x:this.x,y:this.y});
+    if(this.trail.length>6) this.trail.shift();
+    this.x+=this.vx;this.y+=this.vy;
+    this.life--;
+    if(this.life<=0||this.x<0||this.x>WORLD_W||this.y<0||this.y>CH){this.alive=false;return;}
+    // Las balas atraviesan plataformas pequeñas; solo el gran suelo las detiene
+    for(const p of game.platforms){
+      const pb=p.getBounds();
+      if(pb.h>=50 && this.x>pb.x && this.x<pb.x+pb.w && this.y>pb.y && this.y<pb.y+pb.h){
+        this.alive=false;
+        return;
+      }
+    }
+    // Colisión con enemigos
+    if(this.fromPlayer){
+      for(const e of enemies){
+        if(!e.alive) continue;
+        if(this.x>e.x&&this.x<e.x+e.w&&this.y>e.y&&this.y<e.y+e.h){
+          if(e._hp===undefined) e._hp=e.immuneToStomp?3:2;
+          e._hp-=this.dmg;
+          SFX.noise(0.04,0.08,1600,{type:"highpass"});
+          SFX.tone(420,0.06,"sawtooth",0.09,{layers:2,detune:20});
+          if(e._hp<=0){
+            if(game.player&&game.player.spawnKillFor) game.player.spawnKillFor(e,"garras");
+            e.alive=false;
+            if(game.player) game.player.score+=80;
+          }
+          this.alive=false;
+          return;
+        }
+      }
+    }
+  }
+  draw(ctx){
+    // Estela
+    for(let i=0;i<this.trail.length;i++){
+      const t=this.trail[i],a=i/this.trail.length;
+      ctx.save();ctx.globalAlpha=a*0.55;ctx.fillStyle="#FFE070";
+      ctx.beginPath();ctx.arc(t.x,t.y,1.6,0,Math.PI*2);ctx.fill();ctx.restore();
+    }
+    // Bala
+    ctx.save();
+    ctx.fillStyle="#FFFA70";
+    ctx.beginPath();ctx.arc(this.x,this.y,2.2,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#FF9020";
+    ctx.beginPath();ctx.arc(this.x-this.vx*0.15,this.y-this.vy*0.15,1.2,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+}
+
+// Sonido por tipo de arma
+function playWeaponSound(id){
+  switch(id){
+    case"pistol":
+      SFX.tone(620,0.05,"square",0.13,{layers:2,detune:30,rev:0.2});
+      SFX.noise(0.05,0.1,3000,{type:"highpass",rev:0.3});
+      SFX.tone(200,0.08,"sawtooth",0.1);
+      break;
+    case"shotgun":
+      SFX.noise(0.15,0.22,1200,{q:1.5,rev:0.35});
+      SFX.tone(160,0.2,"sawtooth",0.18,{layers:2,detune:12});
+      SFX.tone(90,0.3,"sine",0.14);
+      break;
+    case"rifle":
+      SFX.tone(540,0.08,"square",0.18,{layers:3,detune:20,rev:0.3});
+      SFX.noise(0.09,0.14,2600,{type:"highpass",rev:0.4});
+      SFX.tone(140,0.15,"sawtooth",0.14);
+      break;
+    case"smg":
+      SFX.tone(800,0.03,"square",0.1,{layers:2,detune:30});
+      SFX.noise(0.03,0.08,2400,{type:"highpass"});
+      break;
+  }
+}
+
 class Platform{
   constructor(x,y,w,h,override){
     this.x=x;this.y=y;this.w=w;this.h=h;
@@ -2214,6 +2344,36 @@ class Player{
     this.windupParticles=[];
     this.screenShake=0;
     this.killFx=[]; // animaciones de muerte de enemigos
+    this.weapon=null; // {type, ammo}
+    this.fireCooldown=0;
+  }
+  equipWeapon(type){
+    this.weapon={type, ammo:type.ammo};
+  }
+  fireWeapon(game){
+    if(!this.weapon||this.fireCooldown>0||this.weapon.ammo<=0) return;
+    const t=this.weapon.type;
+    this.fireCooldown=t.fireRate;
+    this.weapon.ammo--;
+    const dir=this.facingRight?1:-1;
+    const ox=this.x+16+dir*14;
+    const oy=this.y+22;
+    for(let i=0;i<t.pellets;i++){
+      const spread=(Math.random()-0.5)*t.spread*2;
+      const ang=spread;
+      const vx=Math.cos(ang)*t.spd*dir;
+      const vy=Math.sin(ang)*t.spd;
+      game.bullets.push(new Bullet(ox,oy,vx,vy,t.dmg,true));
+    }
+    playWeaponSound(t.sound);
+    // Retroceso
+    this.vx-=dir*0.8;
+    this.screenShake=Math.max(this.screenShake,4);
+    if(this.weapon.ammo<=0){
+      // Soltar arma
+      setTimeout(()=>{this.weapon=null;},80);
+      SFX.tone(200,0.15,"sawtooth",0.08);
+    }
   }
 
   // Selecciona 1 de 2-3 tipos de asesinato. Si hay crías activas, añade "alimentar".
@@ -2495,6 +2655,11 @@ class Player{
     if(this.dead){this.vy+=GRAVITY;this.y+=this.vy;return;}
     this.animFrame++;if(this.invincible>0)this.invincible--;
     if(this.clawCooldown>0)this.clawCooldown--;
+    if(this.fireCooldown>0) this.fireCooldown--;
+    // Disparo (solo si tiene arma)
+    if(input.fire && this.weapon && window._gameRef){
+      this.fireWeapon(window._gameRef);
+    }
     this.handleInput(input,enemies);
     this.updateClaw(enemies);
     this.resolveCollisions(platforms);
@@ -2950,6 +3115,8 @@ class Game{
     this.state="menu";
     this.input={left:false,right:false,jump:false,jumpPressed:false,clawPressed:false};
     this.lastTime=0;this.menuOwlIndex=0;this.menuOwlTimer=0;this.menuBlink=0;
+    this.menuOption=0; // 0=Campaign, 1=Battle Royale
+    this.brKills=0; this.brWave=1; this.brSpawnTimer=0;
     this.winParticles=[];this.companions=[];this.secretBlock=null;
     this.blockTimer=0;this.blockFlash=0;
     this.stars=Array.from({length:70},()=>({x:Math.random()*WORLD_W,y:Math.random()*200,r:Math.random()*1.8+0.5,alpha:Math.random()*0.5+0.3}));
@@ -3048,14 +3215,26 @@ class Game{
       if(["ArrowRight","d","D"].includes(e.key)) this.input.right=true;
       if(["ArrowUp","w","W"," "].includes(e.key)&&!this.input.jump){this.input.jump=true;this.input.jumpPressed=true;}
       if(["z","Z","e","E"].includes(e.key)) this.input.clawPressed=true;
-      if((e.key==="Enter"||e.key===" ")&&this.state==="menu") this.startGame();
-      if((e.key==="r"||e.key==="R")&&this.state!=="playing") this.startGame();
+      if(["f","F","j","J","x","X"].includes(e.key)) this.input.fire=true;
+      // Navegación del menú
+      if(this.state==="menu"){
+        if(["ArrowUp","w","W"].includes(e.key)){ this.menuOption=(this.menuOption+1)%2; SFX.tone(700,0.06,"square",0.08); }
+        if(["ArrowDown","s","S"].includes(e.key)){ this.menuOption=(this.menuOption+1)%2; SFX.tone(500,0.06,"square",0.08); }
+        if(e.key==="Enter"||e.key===" "){
+          if(this.menuOption===0) this.startGame();
+          else this.startBattleRoyale();
+        }
+      }
+      if((e.key==="r"||e.key==="R")&&this.state!=="playing"&&this.state!=="battleroyale"){
+        if(this.lastMode==="br") this.startBattleRoyale(); else this.startGame();
+      }
       if(["ArrowLeft","ArrowRight","ArrowUp"," "].includes(e.key))e.preventDefault();
     });
     window.addEventListener("keyup",e=>{
       if(["ArrowLeft","a","A"].includes(e.key))  this.input.left=false;
       if(["ArrowRight","d","D"].includes(e.key)) this.input.right=false;
       if(["ArrowUp","w","W"," "].includes(e.key)){this.input.jump=false;}
+      if(["f","F","j","J","x","X"].includes(e.key)) this.input.fire=false;
     });
   }
   startGame(){
@@ -3075,6 +3254,55 @@ class Game{
     }
     window._gameRef=this;
     this.initBiomeFx();
+  }
+  startBattleRoyale(){
+    SFX.unlock();
+    currentBiome=pick(BIOMES);
+    const sp=pick(OWL_SPECIES);
+    this.player=new Player(sp);
+    // Arena BR: plataforma central + islas flotantes
+    const platforms=[];
+    platforms.push(new Platform(0,390,WORLD_W,60)); // suelo continuo
+    for(let i=0;i<14;i++){
+      const px=200+i*320+rnd(-40,40);
+      const py=rnd(150,340);
+      const pw=rnd(90,160);
+      platforms.push(new Platform(px,py,pw,18));
+    }
+    this.platforms=platforms;
+    this.enemies=[];
+    // Pizza falsa no usada — lo dejamos inerte
+    this.pizza={collected:true,particles:[],update:()=>{},getBounds:()=>({x:-9e9,y:-9e9,w:1,h:1}),draw:()=>{}};
+    this.camera=new Camera();this.timer=0;this.state="battleroyale";
+    this.winParticles=[];this.companions=[];this.secretBlock=null;
+    this.blockTimer=0;this.blockFlash=0;
+    this.chicks=[];
+    if(Math.random()<0.5) for(let i=0;i<3;i++) this.chicks.push(new Chick(sp,i));
+    this.brKills=0; this.brWave=1; this.brSpawnTimer=0;
+    this.weaponPickups=[]; this.bullets=[];
+    this.lastMode="br";
+    window._gameRef=this;
+    this.initBiomeFx();
+    // Primera oleada
+    this._brSpawnWave();
+    // Primer arma al centro
+    this.weaponPickups.push(new WeaponPickup(pick(WEAPON_TYPES),WORLD_W/2,350));
+  }
+  _brSpawnWave(){
+    const count = 3 + Math.floor(this.brWave*1.2);
+    for(let i=0;i<count;i++) this._brSpawnOne();
+  }
+  _brSpawnOne(){
+    const types=[WalkingEnemy,JumpingEnemy,BatEnemy,SnakeEnemy,WaspEnemy];
+    const T=pick(types);
+    const cx=this.player.x + (Math.random()<0.5?-1:1)*rnd(300,600);
+    const x=clamp(cx,80,WORLD_W-80);
+    let e;
+    if(T===BatEnemy) e=new BatEnemy(x,rnd(100,200),x-120,x+120);
+    else if(T===WaspEnemy) e=new WaspEnemy(x,rnd(100,200),x-150,x+150);
+    else if(T===SnakeEnemy) e=new SnakeEnemy(x,376,x-100,x+100);
+    else e=new T(x,300,x-100,x+100);
+    this.enemies.push(e);
   }
   spawnSecretBlock(){
     const px=this.player.x;
@@ -3125,6 +3353,57 @@ class Game{
       if(this.player.dead&&this.player.y>CH+200){this.state="gameover";this.deathTimer=0;this.deathBloodDrops=[];SFX.playHurt();}
       return;
     }
+    // ---------- BATTLE ROYALE ----------
+    if(this.state==="battleroyale"){
+      this.timer++;
+      // Aliadas (igual que campaña)
+      for(const c of this.companions) c.update(this.enemies,this.player.x+16,this.player.y+20);
+      for(const p of this.platforms) p.update();
+      const px=this.player.x+16, py=this.player.y+20;
+      // Enemigos: limpiar muertos y actualizar
+      const prevAlive=this.enemies.filter(e=>e.alive).length;
+      for(const e of this.enemies){
+        if(e instanceof JumpingEnemy)e.update(this.platforms,px);
+        else if(e instanceof GhostEnemy)e.update(this.platforms,px,py);
+        else e.update(this.platforms,px);
+      }
+      // Contar kills nuevos
+      const newAlive=this.enemies.filter(e=>e.alive).length;
+      this.brKills += Math.max(0, prevAlive-newAlive);
+      this.enemies=this.enemies.filter(e=>e.alive);
+      this.player.update(this.input,this.platforms,this.enemies,this.pizza);
+      if(this.chicks){
+        for(const c of this.chicks) c.update(this.enemies,this.player.x+16,this.player.y+20,this.player.facingRight);
+      }
+      // Spawn continuo: cuando quedan pocos, lanza nueva oleada
+      if(this.enemies.filter(e=>e.alive).length<=1){
+        this.brWave++;
+        this._brSpawnWave();
+        SFX.tone(880,0.18,"square",0.1,{layers:2,detune:20});
+        SFX.tone(1100,0.22,"triangle",0.1,{layers:2,detune:15});
+        // Drop arma nueva
+        const sx=this.player.x+rnd(-200,200);
+        this.weaponPickups.push(new WeaponPickup(pick(WEAPON_TYPES),clamp(sx,80,WORLD_W-80),350));
+      }
+      // Pickups
+      for(const wp of this.weaponPickups) wp.update();
+      for(const wp of this.weaponPickups){
+        if(!wp.picked && aabb(this.player,wp.getBounds())){
+          wp.picked=true;
+          this.player.equipWeapon(wp.type);
+          SFX.tone(1400,0.08,"square",0.12,{layers:2,detune:15,rev:0.3});
+          SFX.tone(1800,0.12,"sine",0.1,{rev:0.35});
+        }
+      }
+      this.weaponPickups=this.weaponPickups.filter(w=>!w.picked);
+      // Balas
+      for(const b of this.bullets) b.update(this.enemies,this);
+      this.bullets=this.bullets.filter(b=>b.alive);
+      this.updateBiomeFx();
+      this.camera.update(px);
+      if(this.player.dead&&this.player.y>CH+200){this.state="gameover";this.deathTimer=0;this.deathBloodDrops=[];SFX.playHurt();}
+      return;
+    }
     this.pizza.update();this.timer++;
     for(const p of this.winParticles){p.x+=p.vx;p.y+=p.vy;p.vy+=0.05;p.life--;p.alpha=p.life/p.maxLife;}
     this.winParticles=this.winParticles.filter(p=>p.life>0);
@@ -3152,7 +3431,88 @@ class Game{
     if(this.state==="menu")    {this.drawMenu(ctx);return;}
     if(this.state==="win")     {this.drawWin(ctx);return;}
     if(this.state==="gameover"){this.drawGameOver(ctx);return;}
+    if(this.state==="battleroyale"){this.drawBattleRoyale(ctx);return;}
     this.drawPlaying(ctx);
+  }
+
+  drawBattleRoyale(ctx){
+    const camX=this.camera.x;
+    this.drawSky(ctx,camX);
+    this.camera.apply(ctx);
+    for(const p of this.platforms) p.draw(ctx);
+    // Pickups
+    for(const wp of this.weaponPickups) wp.draw(ctx);
+    for(const e of this.enemies) e.draw(ctx);
+    for(const c of this.companions) c.draw(ctx);
+    if(this.chicks) for(const c of this.chicks) c.draw(ctx);
+    this.player.draw(ctx);
+    // Arma equipada: dibuja en la mano
+    if(this.player.weapon){
+      const w=this.player.weapon.type;
+      const dir=this.player.facingRight?1:-1;
+      ctx.save();
+      ctx.translate(this.player.x+16+dir*10, this.player.y+24);
+      ctx.scale(dir,1);
+      ctx.fillStyle=w.color;
+      ctx.fillRect(0,-2,14*w.size,4*w.size);
+      ctx.fillStyle="#222";
+      ctx.fillRect(12*w.size,-1,w.barrelL*0.5,2);
+      ctx.restore();
+    }
+    for(const b of this.bullets) b.draw(ctx);
+    for(const e of this.enemies){ if(e.atk) e.drawAttackFx(ctx); }
+    this.camera.reset(ctx);
+    this.drawBRHUD(ctx);
+  }
+
+  drawBRHUD(ctx){
+    const p=this.player;
+    ctx.fillStyle="rgba(0,0,0,0.55)";
+    drawRR(ctx,8,8,210,42,6);ctx.fill();
+    drawRR(ctx,CW/2-100,8,200,42,6);ctx.fill();
+    drawRR(ctx,CW-200,8,192,52,6);ctx.fill();
+    // Corazones
+    ctx.font="18px serif";
+    for(let i=0;i<4;i++){
+      const v=p.health-i;
+      const ch = v>=1?"❤️":(v>=0.5?"💔":"🖤");
+      ctx.fillText(ch,14+i*28,36);
+    }
+    // Timer / Wave / Kills centro
+    ctx.fillStyle="#FFD700";ctx.font="bold 13px monospace";ctx.textAlign="center";
+    ctx.shadowBlur=4;ctx.shadowColor="#000";
+    ctx.fillText(`⏱ ${Math.floor(this.timer/60)}s  ·  OLEADA ${this.brWave}`,CW/2,26);
+    ctx.fillStyle="#FF6060";
+    ctx.fillText(`💀 KILLS: ${this.brKills}`,CW/2,44);
+    ctx.shadowBlur=0;
+    // Arma a la derecha
+    ctx.textAlign="left";
+    if(p.weapon){
+      const w=p.weapon;
+      ctx.fillStyle="#FFE070";ctx.font="bold 13px monospace";
+      ctx.fillText(w.type.name, CW-190, 26);
+      // Barra de munición
+      const frac=w.ammo/w.type.ammo;
+      ctx.fillStyle="#333";ctx.fillRect(CW-190,34,170,10);
+      ctx.fillStyle=frac>0.3?"#50C060":"#C04040";
+      ctx.fillRect(CW-190,34,170*frac,10);
+      ctx.fillStyle="#FFF";ctx.font="bold 10px monospace";
+      ctx.fillText(`${w.ammo} / ${w.type.ammo}`,CW-185,52);
+    } else {
+      ctx.fillStyle="#888";ctx.font="bold 13px monospace";
+      ctx.fillText("SIN ARMA · recoge pickups",CW-194,26);
+      ctx.font="10px monospace";ctx.fillStyle="#666";
+      ctx.fillText("Dispara con F / J / X",CW-194,44);
+    }
+    // Badge BETA
+    ctx.save();
+    ctx.fillStyle="#FFB020";
+    ctx.fillRect(8,54,60,16);
+    ctx.fillStyle="#201500";
+    ctx.font="bold 10px monospace";ctx.textAlign="center";
+    ctx.fillText("BETA",38,66);
+    ctx.restore();
+    ctx.textAlign="left";
   }
 
   drawSky(ctx,camX){
@@ -3294,10 +3654,54 @@ class Game{
     const sp=OWL_SPECIES[this.menuOwlIndex];
     drawOwl(ctx,CW/2,245,true,sp,this.menuOwlTimer*2);
     ctx.font="bold 15px monospace";ctx.textAlign="center";ctx.fillStyle="#AADDFF";ctx.shadowBlur=6;ctx.shadowColor="#002244";ctx.fillText(sp.name,CW/2,298);ctx.fillStyle="#7799AA";ctx.font="11px monospace";ctx.fillText(`(${sp.nameEn}) ${this.menuOwlIndex+1}/${OWL_SPECIES.length}`,CW/2,316);ctx.shadowBlur=0;
-    if(Math.floor(this.menuBlink/30)%2===0){ctx.font="bold 17px monospace";ctx.fillStyle="#FFF";ctx.shadowBlur=8;ctx.shadowColor="#4488FF";ctx.fillText("Presiona ENTER o ESPACIO para jugar",CW/2,366);ctx.shadowBlur=0;}
-    ctx.font="11px monospace";ctx.fillStyle="#7799AA";
-    ctx.fillText("Pisa ×100 | Garras Z/E ×150 | Bloque ? ×300 · 14 especies · 5 biomas aleatorios",CW/2,398);
-    ctx.fillText("Aliadas: cada bloque ? invoca una lechuza aliada que pelea 60s contigo",CW/2,416);
+    // --- Selector de modo ---
+    const opts=[
+      {label:"CAMPAÑA",      sub:"La Pizza Sangrienta"},
+      {label:"BATTLE ROYALE", sub:"BETA · con armas", beta:true},
+    ];
+    const boxY=340, boxH=38;
+    for(let i=0;i<opts.length;i++){
+      const selected=this.menuOption===i;
+      const y=boxY+i*46;
+      ctx.save();
+      if(selected){
+        ctx.shadowBlur=16;ctx.shadowColor="#FF2030";
+        ctx.fillStyle="rgba(120,0,10,0.55)";
+      } else {
+        ctx.fillStyle="rgba(0,0,0,0.4)";
+      }
+      drawRR(ctx,CW/2-170,y,340,boxH,8);ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.strokeStyle=selected?"#FF4050":"#334455";ctx.lineWidth=selected?2:1;
+      drawRR(ctx,CW/2-170,y,340,boxH,8);ctx.stroke();
+      ctx.textAlign="center";ctx.textBaseline="middle";
+      ctx.font="bold 17px monospace";
+      ctx.fillStyle=selected?"#FFF":"#BBCCDD";
+      ctx.fillText(opts[i].label,CW/2-30,y+boxH/2);
+      ctx.font="10px monospace";
+      ctx.fillStyle=selected?"#FFB0B0":"#778899";
+      ctx.fillText(opts[i].sub,CW/2+100,y+boxH/2);
+      // Indicador ▶
+      if(selected&&Math.floor(this.menuBlink/20)%2===0){
+        ctx.fillStyle="#FF3040";ctx.font="bold 18px monospace";
+        ctx.fillText("▶",CW/2-150,y+boxH/2);
+      }
+      // Badge BETA
+      if(opts[i].beta){
+        ctx.save();
+        ctx.fillStyle="#FFB020";
+        ctx.font="bold 9px monospace";
+        ctx.fillRect(CW/2+130,y+4,36,12);
+        ctx.fillStyle="#201500";
+        ctx.fillText("BETA",CW/2+148,y+10);
+        ctx.restore();
+      }
+      ctx.restore();
+      ctx.textBaseline="alphabetic";
+    }
+    ctx.textAlign="center";
+    ctx.font="10px monospace";ctx.fillStyle="#99AABB";
+    ctx.fillText("↑/↓ cambiar · ENTER seleccionar",CW/2,boxY+110);
     drawPizza(ctx,90,385,0.6,this.menuBlink);drawPizza(ctx,CW-90,385,0.6,this.menuBlink+20);
     ctx.textAlign="left";
   }
