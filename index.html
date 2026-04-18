@@ -2531,7 +2531,7 @@ class Player{
         bloodSpray(ctx,0,0,0,10+peckT*20,4);
       }
       ctx.restore();
-    } else {
+    } else if(k.type==="garras"){
       // Garras: 3 zarpazos diagonales cruzados + chorros de sangre
       const slashes=[
         {start:0,  end:18, ang:-0.6},
