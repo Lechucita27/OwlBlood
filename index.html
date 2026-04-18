@@ -1496,6 +1496,7 @@ class Enemy{
     this.dir=1;this.animFrame=0;this.immuneToStomp=false;
     this.atk=null; // {frame, max, tx, ty}
     this.soundId="crow";
+    this.damage=1; // corazones que quita al jugador
   }
   startAttack(tx,ty){ this.atk={frame:0,max:this._atkMax(),tx:tx,ty:ty}; SFX.playEnemy(this.soundId); }
   _atkMax(){ return 45; }
@@ -1520,7 +1521,7 @@ class Enemy{
 
 // --- Cuervo caminador ---
 class WalkingEnemy extends Enemy{
-  constructor(x,y,ps,pe){super(x,y,ps,pe);this.vx=1.5;}
+  constructor(x,y,ps,pe){super(x,y,ps,pe);this.vx=1.5;this.damage=0.5;/* Cuervo nerfeado: medio corazón */}
   update(platforms){this.animFrame++;this.applyGravity();this.resolveCollisions(platforms);this.updateAttack();}
   draw(ctx){
     if(!this.alive)return;
@@ -2006,6 +2007,109 @@ class SecretBlock{
 }
 
 // ============================================================
+//  CRIAS (3 hijos que siguen a la lechuza — 30% probabilidad)
+// ============================================================
+class Chick{
+  // Las crías duran TODA la partida. Atacan autónomamente a los enemigos;
+  // tardan 2 golpes en matar un enemigo.
+  constructor(species,idx){
+    this.species=species;this.idx=idx;
+    this.x=0;this.y=0;
+    this.animFrame=rnd(0,60);
+    // Estados: "follow" | "attack" | "eat"
+    this.mode="follow";
+    this.target=null;        // enemigo objetivo
+    this.cooldown=rnd(40,90);
+    this.eatTarget=null;     // {x,y}
+    this.eatTimer=0;
+    this.hitFlash=0;
+    // Daño que cada cría acumula al enemigo (necesita 2 para matar)
+    // Se guarda en el propio enemigo como e._chickHits
+    this.sp={...species, scale:species.scale*0.46};
+  }
+  follow(px,py,facing){
+    const offX = (facing?-1:1) * (28 + this.idx*16);
+    const offY = 14 + Math.sin(this.animFrame*0.12+this.idx)*2;
+    const tx = px+offX, ty = py+offY;
+    this.x += (tx-this.x)*0.12;
+    this.y += (ty-this.y)*0.12;
+  }
+  tryAttack(enemies){
+    if(this.cooldown>0){this.cooldown--;return;}
+    let best=null,bd=999;
+    for(const e of enemies){
+      if(!e.alive||e.immuneToClaw)continue;
+      const d=dist(this.x,this.y,e.x+e.w/2,e.y+e.h/2);
+      if(d<160&&d<bd){bd=d;best=e;}
+    }
+    if(best){this.mode="attack";this.target=best;this.cooldown=0;}
+  }
+  updateAttack(enemies){
+    if(!this.target||!this.target.alive){this.mode="follow";this.target=null;this.cooldown=rnd(40,90);return;}
+    const tx=this.target.x+this.target.w/2, ty=this.target.y+this.target.h/2;
+    const dx=tx-this.x, dy=ty-this.y, d=Math.hypot(dx,dy);
+    if(d<14){
+      // Golpe
+      if(this.target._chickHits===undefined) this.target._chickHits=0;
+      this.target._chickHits++;
+      this.hitFlash=10;
+      SFX.tone(1100,0.06,"square",0.08,{layers:2,detune:20,rev:0.2});
+      SFX.noise(0.04,0.06,1800,{type:"highpass"});
+      if(this.target._chickHits>=2){
+        // Muere: producir blood y limpiar
+        for(let i=0;i<8;i++){/* mini splats ya los dibuja el juego vía spawnKill */}
+        const t=this.target;
+        // Spawn de kill tipo "garras" en el enemigo
+        if(window._gameRef && window._gameRef.player){
+          window._gameRef.player.spawnKillFor(t,"garras");
+        }
+        t.alive=false;
+        if(window._gameRef) window._gameRef.player.score+=120;
+        SFX.playClawKill();
+      }
+      this.mode="follow";this.target=null;this.cooldown=rnd(50,110);
+    } else {
+      this.x += (dx/d)*3.2;
+      this.y += (dy/d)*3.2;
+    }
+  }
+  startEating(kx,ky){
+    this.mode="eat";
+    this.eatTarget={x:kx,y:ky};
+    this.eatTimer=0;
+    this.x = kx + (this.idx-1)*20;
+    this.y = ky - 50 - this.idx*4;
+  }
+  updateEating(){
+    this.eatTimer++;
+    const tx=this.eatTarget.x+(this.idx-1)*14, ty=this.eatTarget.y-4;
+    this.x += (tx-this.x)*0.18;
+    this.y += (ty-this.y)*0.18;
+    if(this.eatTimer>75) this.mode="follow";
+  }
+  update(enemies,px,py,facing){
+    this.animFrame++;
+    if(this.hitFlash>0) this.hitFlash--;
+    if(this.mode==="follow"){this.follow(px,py,facing);this.tryAttack(enemies);}
+    else if(this.mode==="attack") this.updateAttack(enemies);
+    else if(this.mode==="eat") this.updateEating();
+  }
+  draw(ctx){
+    ctx.save();
+    let peckDip=0;
+    if(this.mode==="eat"){
+      const pt=(this.eatTimer%12)/12;
+      peckDip=Math.sin(pt*Math.PI)*4;
+    } else if(this.mode==="attack"){
+      peckDip=Math.sin(this.animFrame*0.4)*2;
+    }
+    if(this.hitFlash>0) ctx.globalAlpha=0.75;
+    drawOwl(ctx,this.x,this.y+peckDip,true,this.sp,this.animFrame,1);
+    ctx.restore();
+  }
+}
+
+// ============================================================
 //  LECHUZA ALIADA (combatiente 60s)
 // ============================================================
 class CompanionOwl{
@@ -2109,6 +2213,30 @@ class Player{
     this.trail=[];         // motion trail durante el dash
     this.windupParticles=[];
     this.screenShake=0;
+    this.killFx=[]; // animaciones de muerte de enemigos
+  }
+
+  // Selecciona 1 de 2-3 tipos de asesinato. Si hay crías activas, añade "alimentar".
+  spawnKill(enemy){
+    const options=["comer","garras"];
+    const hasChicks = window._gameRef && window._gameRef.chicks && window._gameRef.chicks.length>0;
+    if(hasChicks) options.push("alimentar");
+    const type = pick(options);
+    this.spawnKillFor(enemy,type);
+  }
+  spawnKillFor(enemy,type){
+    const maxFrames = type==="comer" ? 75 : (type==="alimentar" ? 110 : 55);
+    this.killFx.push({
+      x:enemy.x+enemy.w/2, y:enemy.y+enemy.h/2,
+      ex:enemy.x, ey:enemy.y, ew:enemy.w, eh:enemy.h,
+      frame:0, max:maxFrames, type, sp:this.species,
+      facingRight:this.facingRight,
+      splats:[],
+    });
+    // Si es alimentar, lanzar a las crías a comer
+    if(type==="alimentar" && window._gameRef && window._gameRef.chicks){
+      for(const c of window._gameRef.chicks) c.startEating(enemy.x+enemy.w/2, enemy.y+enemy.h/2);
+    }
   }
 
   activateClaw(enemies){
@@ -2157,6 +2285,32 @@ class Player{
     // Actualizar efectos de impacto
     for(const e of this.clawEffects) e.timer++;
     this.clawEffects=this.clawEffects.filter(e=>e.timer<e.maxTimer);
+    // Actualizar animaciones de kill y disparar sonidos/blood splats
+    for(const k of this.killFx){
+      k.frame++;
+      if(k.type==="comer"){
+        // Picotazo cada 15 frames
+        if(k.frame===8||k.frame===23||k.frame===38||k.frame===53){
+          k.splats.push({x:k.x+rnd(-10,10),y:k.y+rnd(-4,8),r:rnd(2,4),a:1});
+          SFX.tone(900,0.05,"square",0.08,{layers:2,detune:20,rev:0.2});
+          SFX.noise(0.05,0.06,1400,{type:"bandpass",q:3});
+        }
+      } else if(k.type==="garras"){
+        if(k.frame===6||k.frame===16||k.frame===26){
+          k.splats.push({x:k.x+rnd(-14,14),y:k.y+rnd(-8,10),r:rnd(2,4.5),a:1});
+          SFX.noise(0.08,0.1,2200,{type:"highpass",rev:0.25});
+          SFX.tone(520+k.frame*8,0.08,"sawtooth",0.09,{layers:2,detune:18});
+        }
+      } else if(k.type==="alimentar"){
+        // 3 crías comiendo — pecks intermitentes
+        if(k.frame>25 && k.frame%10===0 && k.frame<100){
+          k.splats.push({x:k.x+rnd(-18,18),y:k.y+rnd(-6,10),r:rnd(1.5,3.5),a:1});
+          SFX.tone(1200+Math.random()*400,0.05,"square",0.07,{layers:2,detune:25});
+          SFX.noise(0.04,0.05,2400,{type:"bandpass",q:3});
+        }
+      }
+    }
+    this.killFx=this.killFx.filter(k=>k.frame<k.max);
     // Actualizar trail fade
     for(const t of this.trail) t.life--;
     this.trail=this.trail.filter(t=>t.life>0);
@@ -2207,6 +2361,7 @@ class Player{
         const angle=Math.atan2(this.clawTargetY-this.clawStartY,this.clawTargetX-this.clawStartX);
         const ex=this.clawTargetX,ey=this.clawTargetY;
         if(this._clawTarget&&this._clawTarget.alive){
+          this.spawnKill(this._clawTarget);
           this._clawTarget.alive=false;this.score+=150;SFX.playClawKill();
         }
         // Efecto principal
@@ -2261,18 +2416,19 @@ class Player{
       if(!e.alive)continue;
       if(aabb(this,e.getBounds())){
         if(!e.immuneToStomp&&this.vy>0&&this.y+this.h<e.y+e.h*0.55){
+          this.spawnKill(e);
           e.alive=false;this.vy=-8;this.score+=100;SFX.playStomp();
         } else {
           // Lanzar animación de ataque del enemigo sobre el jugador
           if(typeof e.startAttack==="function") e.startAttack(this.x+16,this.y+18);
-          this.takeDamage();
+          this.takeDamage(e.damage!==undefined?e.damage:1);
         }
         break;
       }
     }
   }
 
-  takeDamage(){this.health--;this.invincible=90;if(this.health<=0)this.dead=true;SFX.playHurt();}
+  takeDamage(amount=1){this.health-=amount;this.invincible=90;if(this.health<=0){this.health=0;this.dead=true;}SFX.playHurt();}
 
   update(input,platforms,enemies,pizza){
     if(this.dead){this.vy+=GRAVITY;this.y+=this.vy;return;}
@@ -2332,6 +2488,135 @@ class Player{
     for(const e of this.clawEffects){
       drawSpeciesAttack(ctx,e.x,e.y,e.angle,e.style,e.timer/e.maxTimer,e.c1,e.c2);
     }
+    // Animaciones de kill
+    for(const k of this.killFx) this._drawKillFx(ctx,k);
+  }
+
+  _drawKillFx(ctx,k){
+    const t=k.frame/k.max;
+    const sp=k.sp;
+    ctx.save();
+    // Blood splats acumulados (siempre visibles)
+    for(const s of k.splats){
+      ctx.fillStyle="#6A0000"; ctx.globalAlpha=s.a;
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#AA0000";
+      ctx.beginPath(); ctx.arc(s.x-0.5,s.y-0.5,s.r*0.55,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    if(k.type==="comer"){
+      // La lechuza se inclina sobre la presa y la picotea
+      const fade=Math.max(0,1-Math.max(0,t-0.75)/0.25);
+      // Silueta del cadáver encogiéndose
+      ctx.save();
+      const shrink=Math.max(0.2,1-t*0.9);
+      ctx.globalAlpha=Math.max(0.25,1-t)*0.8;
+      ctx.fillStyle="#2A1A10";
+      ctx.beginPath();
+      ctx.ellipse(k.x,k.y+k.eh*0.3,(k.ew*0.55)*shrink,(k.eh*0.3)*shrink,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      // Lechuza comiendo: dibujamos la lechuza encima, con un "peck" oscilante
+      const peckPhase=Math.floor(k.frame/15);
+      const peckT=(k.frame%15)/15;
+      const peckDip=Math.sin(peckT*Math.PI)*8;
+      ctx.save();
+      ctx.globalAlpha=fade;
+      const ox=k.x, oy=k.y-14+peckDip;
+      drawOwl(ctx,ox,oy,k.facingRight,sp,k.frame*2,fade);
+      // Chorros pequeños en cada picotazo
+      if(peckT<0.35){
+        ctx.translate(ox+(k.facingRight?6:-6),oy+10);
+        ctx.rotate(k.facingRight?0.3:Math.PI-0.3);
+        bloodSpray(ctx,0,0,0,10+peckT*20,4);
+      }
+      ctx.restore();
+    } else {
+      // Garras: 3 zarpazos diagonales cruzados + chorros de sangre
+      const slashes=[
+        {start:0,  end:18, ang:-0.6},
+        {start:10, end:28, ang: 0.6},
+        {start:20, end:38, ang:-0.3},
+      ];
+      // Cadáver desgarrado que se desvanece
+      const shrink=Math.max(0,1-t);
+      ctx.save();
+      ctx.globalAlpha=Math.max(0.2,1-t)*0.85;
+      ctx.fillStyle="#2A1A10";
+      ctx.beginPath();
+      ctx.ellipse(k.x,k.y+k.eh*0.25,(k.ew*0.5)*shrink,(k.eh*0.3)*shrink,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      for(const s of slashes){
+        if(k.frame<s.start||k.frame>s.end+10) continue;
+        const local=(k.frame-s.start)/(s.end-s.start);
+        const prog=Math.min(1,local);
+        const alpha=Math.max(0,1-(local-1));
+        ctx.save();
+        ctx.translate(k.x,k.y);
+        ctx.rotate(s.ang);
+        ctx.globalAlpha=alpha;
+        // 3 líneas de garra (rojas/blancas)
+        for(let i=-1;i<=1;i++){
+          const off=i*6;
+          ctx.strokeStyle=i===0?"#FFFFFF":sp.atkColor;
+          ctx.lineWidth=i===0?3:2;
+          ctx.lineCap="round";
+          ctx.beginPath();
+          ctx.moveTo(-22,off);
+          ctx.lineTo(-22+44*prog,off);
+          ctx.stroke();
+          // Reflejo rojo sangre
+          ctx.strokeStyle="#C00010";
+          ctx.lineWidth=1.2;
+          ctx.beginPath();
+          ctx.moveTo(-22,off+1);
+          ctx.lineTo(-22+44*prog,off+1);
+          ctx.stroke();
+        }
+        // Chorro de sangre al final del slash
+        if(local>=0.5&&local<=1){
+          bloodSpray(ctx,-22+44*prog,0,0,14,5);
+          bloodSpray(ctx,-22+44*prog,0,Math.PI,12,4);
+        }
+        ctx.restore();
+      }
+      // Splat final grande
+      if(k.frame>38){
+        const fa=Math.max(0,1-(k.frame-38)/15);
+        ctx.globalAlpha=fa;
+        bloodSplat(ctx,k.x,k.y,10,22,2.5);
+        ctx.globalAlpha=1;
+      }
+    } else if(k.type==="alimentar"){
+      // Cadáver encogiéndose mientras las crías lo devoran
+      const shrink=Math.max(0.1, 1-t*0.95);
+      ctx.save();
+      ctx.globalAlpha=Math.max(0.15,1-t)*0.85;
+      ctx.fillStyle="#2A1A10";
+      ctx.beginPath();
+      ctx.ellipse(k.x,k.y+k.eh*0.3,(k.ew*0.55)*shrink,(k.eh*0.3)*shrink,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      // Pequeños chorros de sangre al ritmo de los pecks
+      if(k.frame>25 && k.frame<100 && k.frame%10<2){
+        for(let i=0;i<3;i++){
+          const ang=(i-1)*0.6;
+          bloodSpray(ctx,k.x+(i-1)*10,k.y,ang,10,3);
+        }
+      }
+      // Texto ambiente
+      if(k.frame<50){
+        ctx.save();
+        ctx.globalAlpha=Math.max(0,1-k.frame/50)*0.7;
+        ctx.fillStyle="#FFB040";
+        ctx.font="bold 11px monospace";
+        ctx.textAlign="center";
+        ctx.fillText("¡A COMER!",k.x,k.y-30);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
   }
 }
 
@@ -2550,6 +2835,12 @@ class Game{
     this.camera=new Camera();this.timer=0;this.state="playing";
     this.winParticles=[];this.companions=[];this.secretBlock=null;
     this.blockTimer=0;this.blockFlash=0;
+    // 30% de probabilidad: la lechuza aparece con 3 crías que duran toda la partida
+    this.chicks=[];
+    if(Math.random()<0.3){
+      for(let i=0;i<3;i++) this.chicks.push(new Chick(sp,i));
+    }
+    window._gameRef=this;
     this.initBiomeFx();
   }
   spawnSecretBlock(){
@@ -2590,6 +2881,10 @@ class Game{
         else e.update(this.platforms,px);
       }
       this.player.update(this.input,this.platforms,this.enemies,this.pizza);
+      // Crías: atacan autónomamente (2 hits para matar)
+      if(this.chicks){
+        for(const c of this.chicks) c.update(this.enemies,this.player.x+16,this.player.y+20,this.player.facingRight);
+      }
       this.pizza.update();
       this.updateBiomeFx();
       this.camera.update(px);
@@ -2661,6 +2956,7 @@ class Game{
     if(this.secretBlock)this.secretBlock.draw(ctx);
     for(const e of this.enemies)e.draw(ctx);
     for(const c of this.companions)c.draw(ctx);
+    if(this.chicks) for(const c of this.chicks) c.draw(ctx);
     this.player.draw(ctx);
     // Efectos de ataque enemigo se dibujan encima del jugador
     for(const e of this.enemies){ if(e.atk) e.drawAttackFx(ctx); }
@@ -2682,9 +2978,13 @@ class Game{
     drawRR(ctx,CW/2-90,8,180,42,6);ctx.fill();
     drawRR(ctx,CW-178,8,170,42,6);ctx.fill();
 
-    // 4 Corazones
+    // 4 Corazones con soporte de medio corazón
     ctx.font="18px serif";
-    for(let i=0;i<4;i++)ctx.fillText(i<p.health?"❤️":"🖤",14+i*28,36);
+    for(let i=0;i<4;i++){
+      const v=p.health-i;
+      const ch = v>=1?"❤️":(v>=0.5?"💔":"🖤");
+      ctx.fillText(ch,14+i*28,36);
+    }
 
     // Timer
     ctx.fillStyle="#FFD700";ctx.font="bold 14px monospace";ctx.textAlign="center";
