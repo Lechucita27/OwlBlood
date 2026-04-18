@@ -1419,7 +1419,7 @@ class Camera{
 // ============================================================
 // ==== RAREZAS ====
 const RARITIES = {
-  comun : {name:"Común",  color:"#B8B8B8", glow:"#888", weight:50},
+  comun : {name:"Común",  color:"#B8B8B8", glow:"#888888", weight:50},
   raro  : {name:"Raro",   color:"#3DA5FF", glow:"#2060C0", weight:30},
   epico : {name:"Épico",  color:"#C050FF", glow:"#7010B0", weight:15},
   mitico: {name:"Mítico", color:"#FFD700", glow:"#FF6000", weight:5},
@@ -1569,8 +1569,6 @@ class Bullet{
         if(this.x>b.x&&this.x<b.x+b.w&&this.y>b.y&&this.y<b.y+b.h){
           b.takeHit(this.dmg,game,this.fromPlayer?game.player:this.src);
           SFX.noise(0.03,0.07,2000,{type:"highpass"});
-          // Pequeño splat
-          bloodSplat(game.ctx||{},b.x+b.w/2,b.y+b.h/2,4,10,1.5);
           this.alive=false;return;
         }
       }
@@ -3853,7 +3851,7 @@ class Game{
     const cols=["#F5C842","#C0392B","#9B2020","#F5E642","#7BBF4E","#4A7B9D","#FFF"];
     for(let i=0;i<80;i++)this.winParticles.push({x:CW/2+(Math.random()-0.5)*200,y:CH/2-50,vx:(Math.random()-0.5)*5,vy:-Math.random()*6-2,color:pick(cols),life:80+Math.random()*60,maxLife:140,alpha:1,r:3+Math.random()*5});
   }
-  gameLoop(ts){this.lastTime=ts;this.update();this.draw();requestAnimationFrame(t=>this.gameLoop(t));}
+  gameLoop(ts){this.lastTime=ts;try{this.update();}catch(e){console.error("update error:",e);}try{this.draw();}catch(e){console.error("draw error:",e);}requestAnimationFrame(t=>this.gameLoop(t));}
   start(){requestAnimationFrame(ts=>{this.lastTime=ts;this.gameLoop(ts);});}
 
   draw(){
@@ -4315,7 +4313,7 @@ class Game{
 // ============================================================
 //  ARRANQUE
 // ============================================================
-window.onload=()=>{ new Game(document.getElementById("gameCanvas")).start(); };
+window.onload=()=>{ const g=new Game(document.getElementById("gameCanvas")); window.__game=g; g.start(); };
 </script>
 </body>
 </html>
