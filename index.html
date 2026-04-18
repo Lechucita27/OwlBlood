@@ -2396,19 +2396,26 @@ class SecretBlock{
 //  CRIAS (3 hijos que siguen a la lechuza — 30% probabilidad)
 // ============================================================
 class Chick{
-  // Las crías duran TODA la partida. Atacan autónomamente a los enemigos;
-  // tardan 2 golpes en matar un enemigo.
+  // Las crías duran TODA la partida. Atacan autónomamente; 2 golpes matan.
+  // A veces se alejan de la lechuza; si están muy lejos y un enemigo las
+  // pilla, se las come (chick.alive=false). Solo vuelven cuando te acercas.
   constructor(species,idx){
     this.species=species;this.idx=idx;
     this.x=0;this.y=0;
     this.animFrame=rnd(0,60);
-    // Estados: "follow" | "attack" | "eat"
+    // Estados: "follow" | "stray" | "attack" | "eat"
     this.mode="follow";
     this.target=null;        // enemigo objetivo
     this.cooldown=rnd(40,90);
     this.eatTarget=null;     // {x,y}
     this.eatTimer=0;
     this.hitFlash=0;
+    this.alive=true;
+    // Vagabundeo
+    this.strayTimer=rnd(360,900); // frames antes de alejarse
+    this.strayDx=0;this.strayDy=0;
+    this.strayDuration=0;
+    this.deathTimer=0; // para fx al morir
     // Daño que cada cría acumula al enemigo (necesita 2 para matar)
     // Se guarda en el propio enemigo como e._chickHits
     this.sp={...species, scale:species.scale*0.46};
@@ -2473,14 +2480,74 @@ class Chick{
     this.y += (ty-this.y)*0.18;
     if(this.eatTimer>75) this.mode="follow";
   }
+  updateStray(px,py,enemies){
+    // Deriva hacia strayDx/dy; oscilación suave
+    this.strayDuration--;
+    const wob = Math.sin(this.animFrame*0.08)*0.4;
+    this.x += this.strayDx + wob;
+    this.y += this.strayDy + Math.cos(this.animFrame*0.09)*0.3;
+    // Si el jugador se acerca (<140px), vuelve al follow
+    const dP = dist(this.x,this.y,px,py);
+    if(dP<140 || this.strayDuration<=0){
+      this.mode="follow"; this.cooldown=rnd(60,120);
+      this.strayTimer = rnd(480,1200);
+      return;
+    }
+    // Si hay un enemigo muy cerca (<36px) y el jugador lejos (>240px)
+    // el enemigo se la come.
+    if(dP>240){
+      for(const e of enemies){
+        if(!e.alive) continue;
+        const d=dist(this.x,this.y,e.x+e.w/2,e.y+e.h/2);
+        if(d<36){
+          this._getEaten(e);
+          return;
+        }
+      }
+    }
+  }
+  _getEaten(enemy){
+    this.alive=false;
+    this.deathTimer=1;
+    SFX.noise(0.25,0.35,800,{type:"lowpass"});
+    SFX.tone(220,0.25,"sawtooth",0.25,{layers:2,detune:50,rev:0.35});
+    if(window._gameRef){
+      // Splat de sangre visual en el juego (si existe sistema de partículas)
+      const g=window._gameRef;
+      if(g.bloodParticles){
+        for(let i=0;i<18;i++){
+          const a=Math.random()*Math.PI*2, s=1+Math.random()*4;
+          g.bloodParticles.push({x:this.x,y:this.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-1,life:40,r:2+Math.random()*3});
+        }
+      }
+    }
+  }
   update(enemies,px,py,facing){
+    if(!this.alive) return;
     this.animFrame++;
     if(this.hitFlash>0) this.hitFlash--;
-    if(this.mode==="follow"){this.follow(px,py,facing);this.tryAttack(enemies);}
+    if(this.mode==="follow"){
+      this.follow(px,py,facing);
+      this.tryAttack(enemies);
+      // Decidir si deriva
+      this.strayTimer--;
+      if(this.strayTimer<=0 && Math.random()<0.6){
+        this.mode="stray";
+        const a=Math.random()*Math.PI*2;
+        const sp=0.6+Math.random()*0.9;
+        this.strayDx=Math.cos(a)*sp;
+        this.strayDy=Math.sin(a)*sp*0.5 - 0.1;
+        this.strayDuration=rnd(180,360);
+      } else if(this.strayTimer<=0){
+        this.strayTimer=rnd(240,600);
+      }
+    }
+    else if(this.mode==="stray"){ this.updateStray(px,py,enemies); }
     else if(this.mode==="attack") this.updateAttack(enemies);
     else if(this.mode==="eat") this.updateEating();
   }
   draw(ctx){
+    if(!this.alive) return;
     ctx.save();
     let peckDip=0;
     if(this.mode==="eat"){
@@ -2644,7 +2711,7 @@ class Player{
   // Selecciona 1 de 2-3 tipos de asesinato. Si hay crías activas, añade "alimentar".
   spawnKill(enemy){
     const options=["comer","garras"];
-    const hasChicks = window._gameRef && window._gameRef.chicks && window._gameRef.chicks.length>0;
+    const hasChicks = window._gameRef && window._gameRef.chicks && window._gameRef.chicks.some(c=>c.alive);
     if(hasChicks) options.push("alimentar");
     const type = pick(options);
     this.spawnKillFor(enemy,type);
@@ -2660,7 +2727,7 @@ class Player{
     });
     // Si es alimentar, lanzar a las crías a comer
     if(type==="alimentar" && window._gameRef && window._gameRef.chicks){
-      for(const c of window._gameRef.chicks) c.startEating(enemy.x+enemy.w/2, enemy.y+enemy.h/2);
+      for(const c of window._gameRef.chicks){ if(c.alive) c.startEating(enemy.x+enemy.w/2, enemy.y+enemy.h/2); }
     }
   }
 
