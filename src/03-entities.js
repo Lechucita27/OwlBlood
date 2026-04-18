@@ -69,6 +69,26 @@ function randomWeapon(){
   return pickWeaponByRarity("comun");
 }
 
+// ==== Set reducido para Battle Royale estilo Dan The Man 2 ====
+// 6 armas esenciales: pistola, revólver, escopeta, uzi, rifle, sniper.
+const BR_WEAPON_IDS = new Set(["pistola","revolver","shotgunBas","uzi","rifleBas","sniper"]);
+function pickBRWeaponByRarity(rarity){
+  const pool=WEAPON_TYPES.filter(w=>w.rarity===rarity && BR_WEAPON_IDS.has(w.id));
+  return pool.length?pick(pool):null;
+}
+function randomWeaponBR(){
+  // Pesos re-normalizados sobre las rarezas que existen en el set BR
+  const rars=["comun","raro","epico"];
+  const weights={comun:55, raro:30, epico:15};
+  const total=rars.reduce((a,k)=>a+weights[k],0);
+  let r=Math.random()*total;
+  for(const k of rars){
+    r-=weights[k];
+    if(r<=0){ const w=pickBRWeaponByRarity(k); if(w) return w; }
+  }
+  return pickBRWeaponByRarity("comun") || WEAPON_TYPES.find(w=>w.id==="pistola");
+}
+
 class WeaponPickup{
   constructor(type,x,y){
     this.type=type;this.x=x;this.y=y;this.w=32;this.h=20;
@@ -202,7 +222,7 @@ class BotOwl{
     this.alive=true;
     this.deathTimer=0;
     this.animFrame=rnd(0,60);
-    this.weapon={type:randomWeapon(),ammo:99}; // munición infinita simplificada
+    this.weapon={type:randomWeaponBR(),ammo:99}; // munición infinita simplificada
     this.state="wander"; // "wander" | "chase" | "flee"
     this.target=null;
     this.fireCd=rnd(30,90);
@@ -213,6 +233,13 @@ class BotOwl{
     this.id=Math.floor(Math.random()*100000);
     // Cada bot es de una "especie" aleatoria con escala un poco reducida
     this.sp={...species,scale:species.scale*0.95};
+    // IA extra: memoria de posición previa del objetivo (para predicción de liderato)
+    this._lastTx=0;this._lastTy=0;this._lastTvx=0;this._lastTvy=0;
+    this.strafeDir=(Math.random()<0.5?-1:1);
+    this.strafeTimer=rnd(30,90);
+    this.dodgeCd=0;
+    this.aggro=0.55+Math.random()*0.35; // 0.55..0.9: cuánto persigue vs. huye
+    this.skill=0.3+Math.random()*0.65;  // 0.3..0.95: precisión
   }
   getBounds(){return{x:this.x,y:this.y,w:this.w,h:this.h};}
   update(game){
@@ -249,7 +276,7 @@ class BotOwl{
 
     // Buscar objetivo más cercano (jugador o bot)
     const mx=this.x+this.w/2,my=this.y+this.h/2;
-    let best=null,bd=550;
+    let best=null,bd=600;
     // jugador
     if(game.player&&!game.player.dead){
       const d=dist(mx,my,game.player.x+16,game.player.y+20);
@@ -261,29 +288,88 @@ class BotOwl{
       if(d<bd){bd=d;best={e:o,isPlayer:false};}
     }
     // Estado
-    if(best && bd<400){ this.state="chase"; this.target=best; }
-    else { this.state="wander"; this.target=null; }
+    const hpFrac=this.hp/4;
+    if(best && bd<450){
+      if(hpFrac<0.35 && bd<220) this.state="flee";
+      else this.state="chase";
+      this.target=best;
+    } else { this.state="wander"; this.target=null; }
+    if(this.dodgeCd>0) this.dodgeCd--;
+    if(this.strafeTimer>0) this.strafeTimer--; else { this.strafeDir*=-1; this.strafeTimer=rnd(25,70); }
+
+    // --- Recoger arma si hay una mejor muy cerca (upgrade oportunista) ---
+    if(game.weaponPickups && this.onGround){
+      for(const wp of game.weaponPickups){
+        if(wp.picked) continue;
+        if(Math.abs(wp.x-mx)<22 && Math.abs(wp.y-my)<30){
+          const cur=this.weapon?this.weapon.type:null;
+          const upgrade = !cur || (wp.type.dmg*10 + wp.type.pellets*3) > (cur.dmg*10 + cur.pellets*3);
+          if(upgrade){ this.weapon={type:wp.type,ammo:99}; wp.picked=true; }
+        }
+      }
+    }
+
+    // --- Esquivar balas hostiles cercanas ---
+    if(this.onGround && this.dodgeCd<=0 && game.bullets){
+      for(const bu of game.bullets){
+        if(bu.src===this) continue;
+        // proyectil que avanza hacia el bot
+        const dx=(this.x+this.w/2)-bu.x, dy=(this.y+this.h/2)-bu.y;
+        const d2=dx*dx+dy*dy;
+        if(d2<120*120){
+          const vd=dx*bu.vx+dy*bu.vy;
+          if(vd<0){ // se acerca
+            this.vy=-10.5; this.dodgeCd=40; break;
+          }
+        }
+      }
+    }
+
     // Comportamiento
-    if(this.state==="chase" && this.target){
-      const tx=this.target.isPlayer?this.target.e.x+16:this.target.e.x+this.target.e.w/2;
-      const ty=this.target.isPlayer?this.target.e.y+20:this.target.e.y+this.target.e.h/2;
+    if((this.state==="chase"||this.state==="flee") && this.target){
+      const te=this.target.e;
+      const tx=this.target.isPlayer?te.x+16:te.x+te.w/2;
+      const ty=this.target.isPlayer?te.y+20:te.y+te.h/2;
+      // velocidad estimada del target (para lead)
+      const tvx = tx-this._lastTx, tvy = ty-this._lastTy;
+      this._lastTx=tx;this._lastTy=ty;this._lastTvx=tvx;this._lastTvy=tvy;
       this.facingRight = tx>mx;
-      // Movimiento hacia el objetivo (pero manteniendo algo de distancia)
-      if(bd>220) this.vx = this.facingRight?1.5:-1.5;
-      else if(bd<120) this.vx = this.facingRight?-1.0:1.0;
-      else this.vx *= 0.8;
-      // Salto si hay plataforma arriba o hueco
-      if(this.onGround && Math.random()<0.015) this.vy=-10;
-      // Disparar
+
+      if(this.state==="flee"){
+        // Alejarse, pero sin dejar de mirar y seguir disparando
+        this.vx = this.facingRight?-1.6:1.6;
+      } else {
+        // Distancia ideal según arma
+        const idealClose = 120, idealFar = 260;
+        if(bd>idealFar) this.vx = this.facingRight?1.7:-1.7;
+        else if(bd<idealClose) this.vx = this.facingRight?-1.1:1.1;
+        else {
+          // Estamos "en rango": strafe lateral para hacer la AI más lúdica
+          this.vx = this.strafeDir*1.2;
+        }
+      }
+      // Salto deliberado: si target está arriba y hay suelo, salta
+      if(this.onGround){
+        if(ty < my-50 && Math.random()<0.06) this.vy=-11;
+        else if(Math.random()<0.006) this.vy=-9;
+      }
+      // Disparar con predicción (lead aim) + inexactitud según skill
       if(this.fireCd<=0){
-        this._fire(game,tx,ty);
-        this.fireCd = this.weapon.type.fireRate + rnd(0,15);
+        const leadT = Math.min(35, bd/this.weapon.type.spd * 0.9);
+        const aimX = tx + tvx*leadT*this.skill;
+        const aimY = ty + tvy*leadT*this.skill;
+        // Añadir pequeño error según skill (bots tontos disparan más desviado)
+        const errAmp = (1-this.skill)*40;
+        const aimXE = aimX + (Math.random()-0.5)*errAmp;
+        const aimYE = aimY + (Math.random()-0.5)*errAmp;
+        this._fire(game,aimXE,aimYE);
+        // Cadencia modulada por aggro
+        this.fireCd = Math.max(3, Math.round(this.weapon.type.fireRate / this.aggro)) + rnd(0,10);
       } else this.fireCd--;
     } else {
       // Vagar hacia el centro de la zona
       if(this.wanderTimer<=0){
         this.wanderTimer=rnd(60,180);
-        // Tendencia hacia el centro de la zona si está lejos
         if(game.zone){
           const dz=(game.zone.cx-mx);
           if(Math.abs(dz)>game.zone.halfW*0.6) this.wanderDir=Math.sign(dz)||1;

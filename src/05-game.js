@@ -211,6 +211,12 @@ class Game{
       if(e.button===0){this.mouse.down=false;this.input.fire=false;}
     });
     target.addEventListener("contextmenu",e=>e.preventDefault());
+    // Rueda del ratón: ciclar slots del inventario en BR
+    target.addEventListener("wheel",e=>{
+      if(this.state!=="battleroyale"||!this.player) return;
+      e.preventDefault();
+      this.player.cycleSlot(e.deltaY>0?1:-1);
+    },{passive:false});
     window.addEventListener("keydown",e=>{
       SFX.unlock();
       if(["ArrowLeft","a","A"].includes(e.key))  this.input.left=true;
@@ -218,6 +224,12 @@ class Game{
       if(["ArrowUp","w","W"," "].includes(e.key)&&!this.input.jump){this.input.jump=true;this.input.jumpPressed=true;}
       if(["z","Z","e","E"].includes(e.key)) this.input.clawPressed=true;
       if(["f","F","j","J","x","X"].includes(e.key)) this.input.fire=true;
+      // Slots de inventario 1..5 y drop con G (sólo en BR)
+      if(this.state==="battleroyale" && this.player){
+        if(e.key>="1" && e.key<="5"){ this.player.selectSlot(parseInt(e.key,10)-1); e.preventDefault(); }
+        if(e.key==="q"||e.key==="Q"){ this.player.cycleSlot(-1); }
+        if(e.key==="g"||e.key==="G"){ this.player.dropCurrentSlot(this); }
+      }
       // Navegación del menú
       if(this.state==="menu"){
         if(["ArrowUp","w","W"].includes(e.key)){ this.menuOption=(this.menuOption+1)%2; SFX.tone(700,0.06,"square",0.08); }
@@ -299,10 +311,10 @@ class Game{
     this.lastMode="br";
     window._gameRef=this;
     this.initBiomeFx();
-    // --- Armas por todos lados (~180) ---
-    const N_WEAPONS=180;
+    // --- Armas repartidas (set curado estilo Dan The Man 2: 6 armas) ---
+    const N_WEAPONS=90;
     for(let i=0;i<N_WEAPONS;i++){
-      const w=randomWeapon();
+      const w=randomWeaponBR();
       const x=rnd(80,WORLD_W-80);
       this.weaponPickups.push(new WeaponPickup(w,x,340));
     }
@@ -314,12 +326,12 @@ class Game{
       do { bx=rnd(60,WORLD_W-60); } while(Math.abs(bx-this.player.x)<600);
       this.bots.push(new BotOwl(botSp,bx,rnd(100,300)));
     }
-    // --- Zona (gas tipo Fortnite) ---
+    // --- Zona (gas tipo Fortnite) — sólo eje HORIZONTAL ---
+    // La zona cubre toda la altura del mundo y sólo se cierra por los lados.
     this.zone = {
       cx:WORLD_W/2, cy:CH/2,
-      halfW:WORLD_W/2+50, halfH:CH/2+50,
-      nextCx:WORLD_W/2, nextCy:CH/2,
-      nextHalfW:WORLD_W/2+50, nextHalfH:CH/2+50,
+      halfW:WORLD_W/2+50, halfH:CH, // halfH grande: nunca daña por arriba/abajo
+      nextCx:WORLD_W/2, nextHalfW:WORLD_W/2+50,
     };
     this.zonePhase=0;      // 0..N
     this.zoneTimer=60*45;  // 45s hasta primer cierre
@@ -328,20 +340,18 @@ class Game{
     this._pickNextZone();
   }
   _pickNextZone(){
-    const shrink=[1.0,0.65,0.4,0.24,0.12,0.04,0.01];
+    const shrink=[1.0,0.65,0.4,0.24,0.12,0.05,0.02];
     const s=shrink[Math.min(this.zonePhase+1,shrink.length-1)];
     const cur=this.zone;
-    const nhW=Math.max(180,(WORLD_W/2)*s);
-    const nhH=Math.max(140,(CH/2)*s);
-    // El próximo centro está dentro del actual
+    const nhW=Math.max(220,(WORLD_W/2)*s);
+    // El próximo centro X está dentro del actual (sólo X se mueve; Y fijo en CH/2)
     const mx=clamp(cur.cx+rnd(-cur.halfW*0.4,cur.halfW*0.4),nhW+50,WORLD_W-nhW-50);
-    const my=clamp(cur.cy+rnd(-cur.halfH*0.3,cur.halfH*0.3),nhH+40,CH-nhH-40);
-    this.zone.nextCx=mx;this.zone.nextCy=my;
-    this.zone.nextHalfW=nhW;this.zone.nextHalfH=nhH;
+    this.zone.nextCx=mx;
+    this.zone.nextHalfW=nhW;
   }
   isInsideZone(x,y){
     const z=this.zone;
-    return Math.abs(x-z.cx)<z.halfW && Math.abs(y-z.cy)<z.halfH;
+    return Math.abs(x-z.cx)<z.halfW; // sólo se evalúa X: gas por los lados
   }
   updateZone(){
     if(this.zoneClosing){
@@ -349,9 +359,7 @@ class Game{
       const f=this.zoneCloseLeft/this.zoneCloseDur;
       const z=this.zone;
       z.cx = z.nextCx + (this.zoneStart.cx-z.nextCx)*f;
-      z.cy = z.nextCy + (this.zoneStart.cy-z.nextCy)*f;
       z.halfW = z.nextHalfW + (this.zoneStart.halfW-z.nextHalfW)*f;
-      z.halfH = z.nextHalfH + (this.zoneStart.halfH-z.nextHalfH)*f;
       if(this.zoneCloseLeft<=0){
         this.zoneClosing=false;
         this.zonePhase++;
@@ -364,7 +372,7 @@ class Game{
         this.zoneClosing=true;
         this.zoneCloseDur=60*12; // 12s cerrando
         this.zoneCloseLeft=this.zoneCloseDur;
-        this.zoneStart={cx:this.zone.cx,cy:this.zone.cy,halfW:this.zone.halfW,halfH:this.zone.halfH};
+        this.zoneStart={cx:this.zone.cx,halfW:this.zone.halfW};
         SFX.tone(220,0.6,"sawtooth",0.14,{layers:3,detune:30,rev:0.5});
       }
     }
@@ -565,38 +573,51 @@ class Game{
 
   _drawZone(ctx,camX){
     const z=this.zone;
-    // 1) Overlay morado/rojo en TODO lo que está fuera de la zona
+    // Gas sólo por los LADOS — dos rectángulos verticales izq/der.
     ctx.save();
     const gasCol = this.zoneClosing?"rgba(220,40,180,0.32)":"rgba(180,40,220,0.2)";
     ctx.fillStyle=gasCol;
-    // Usamos fillRule evenodd dibujando mundo + hueco zona
-    ctx.beginPath();
-    ctx.rect(camX-200,-200,CW+400,CH+400);
-    ctx.rect(z.cx-z.halfW, z.cy-z.halfH, z.halfW*2, z.halfH*2);
-    ctx.fill("evenodd");
-    // Patrón de franjas animadas fuera
-    ctx.globalAlpha=0.15;
+    // izquierdo: desde el borde del mundo hasta el borde izq de la zona
+    const leftX = camX-200, leftW = Math.max(0,(z.cx-z.halfW) - leftX);
+    const rightX = z.cx+z.halfW, rightW = Math.max(0,(camX+CW+200) - rightX);
+    if(leftW>0)  ctx.fillRect(leftX, -200, leftW, CH+400);
+    if(rightW>0) ctx.fillRect(rightX, -200, rightW, CH+400);
+
+    // Patrón vertical de franjas dentro de las bandas de gas
+    ctx.globalAlpha=0.18;
     ctx.strokeStyle="#FF40CC";ctx.lineWidth=2;
     const off=(this.timer%20);
-    for(let i=-CH;i<CH*2;i+=16){
-      ctx.beginPath();
-      ctx.moveTo(camX-100,i+off);
-      ctx.lineTo(camX+CW+100,i+off-200);
-      ctx.stroke();
-    }
+    const drawStripes=(gx,gw)=>{
+      if(gw<=0) return;
+      for(let y=-CH;y<CH*2;y+=16){
+        ctx.beginPath();
+        ctx.moveTo(gx,y+off);
+        ctx.lineTo(gx+gw,y+off-30);
+        ctx.stroke();
+      }
+    };
+    drawStripes(leftX,leftW);
+    drawStripes(rightX,rightW);
     ctx.globalAlpha=1;
-    // 2) Frontera pulsante de la próxima zona (azul) mientras cierra
+
+    // Línea vertical pulsante de la próxima zona (azul) mientras cierra
     if(this.zoneClosing){
       ctx.strokeStyle="#40D0FF";
       ctx.lineWidth=3;
       ctx.setLineDash([10,6]);
-      ctx.strokeRect(z.nextCx-z.nextHalfW,z.nextCy-z.nextHalfH,z.nextHalfW*2,z.nextHalfH*2);
+      ctx.beginPath();
+      ctx.moveTo(z.nextCx-z.nextHalfW, -100); ctx.lineTo(z.nextCx-z.nextHalfW, CH+100);
+      ctx.moveTo(z.nextCx+z.nextHalfW, -100); ctx.lineTo(z.nextCx+z.nextHalfW, CH+100);
+      ctx.stroke();
       ctx.setLineDash([]);
     }
-    // 3) Frontera actual
+    // Líneas de frontera actual
     ctx.strokeStyle=this.zoneClosing?"#FF4080":"#A040FF";
     ctx.lineWidth=3;
-    ctx.strokeRect(z.cx-z.halfW,z.cy-z.halfH,z.halfW*2,z.halfH*2);
+    ctx.beginPath();
+    ctx.moveTo(z.cx-z.halfW, -100); ctx.lineTo(z.cx-z.halfW, CH+100);
+    ctx.moveTo(z.cx+z.halfW, -100); ctx.lineTo(z.cx+z.halfW, CH+100);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -608,15 +629,15 @@ class Game{
     ctx.strokeStyle="#445566";ctx.lineWidth=1;
     drawRR(ctx,x,y,w,h,6);ctx.stroke();
     const sx=w/WORLD_W, sy=h/CH;
-    // Zona
+    // Zona (sólo banda horizontal — toda la altura del minimapa)
     const z=this.zone;
     ctx.fillStyle="rgba(160,60,220,0.25)";
-    ctx.fillRect(x+(z.cx-z.halfW)*sx, y+(z.cy-z.halfH)*sy, z.halfW*2*sx, z.halfH*2*sy);
+    ctx.fillRect(x+(z.cx-z.halfW)*sx, y, z.halfW*2*sx, h);
     ctx.strokeStyle="#B050FF";ctx.lineWidth=1;
-    ctx.strokeRect(x+(z.cx-z.halfW)*sx, y+(z.cy-z.halfH)*sy, z.halfW*2*sx, z.halfH*2*sy);
+    ctx.strokeRect(x+(z.cx-z.halfW)*sx, y, z.halfW*2*sx, h);
     if(this.zoneClosing){
       ctx.strokeStyle="#40D0FF";ctx.setLineDash([3,2]);
-      ctx.strokeRect(x+(z.nextCx-z.nextHalfW)*sx, y+(z.nextCy-z.nextHalfH)*sy, z.nextHalfW*2*sx, z.nextHalfH*2*sy);
+      ctx.strokeRect(x+(z.nextCx-z.nextHalfW)*sx, y, z.nextHalfW*2*sx, h);
       ctx.setLineDash([]);
     }
     // Bots (puntos rojos)
@@ -668,25 +689,28 @@ class Game{
     const zs = this.zoneTimer!=null ? Math.max(0,Math.floor(this.zoneTimer/60)) : 0;
     ctx.fillText(`☣ ZONA ${(this.zonePhase||0)+1}  ·  ${this.zoneClosing?"CERRANDO":zs+"s"}`,CW/2,44);
     ctx.shadowBlur=0;
-    // Arma a la derecha
+    // Arma activa (texto pequeño a la derecha)
     ctx.textAlign="left";
     if(p.weapon){
       const w=p.weapon;
-      ctx.fillStyle="#FFE070";ctx.font="bold 13px monospace";
-      ctx.fillText(w.type.name, CW-190, 26);
-      // Barra de munición
+      ctx.fillStyle="#FFE070";ctx.font="bold 12px monospace";
+      ctx.fillText(w.type.name, CW-190, 24);
       const frac=w.ammo/w.type.ammo;
-      ctx.fillStyle="#333";ctx.fillRect(CW-190,34,170,10);
+      ctx.fillStyle="#333";ctx.fillRect(CW-190,30,170,8);
       ctx.fillStyle=frac>0.3?"#50C060":"#C04040";
-      ctx.fillRect(CW-190,34,170*frac,10);
+      ctx.fillRect(CW-190,30,170*frac,8);
       ctx.fillStyle="#FFF";ctx.font="bold 10px monospace";
-      ctx.fillText(`${w.ammo} / ${w.type.ammo}`,CW-185,52);
+      ctx.fillText(`${w.ammo} / ${w.type.ammo}`,CW-185,48);
     } else {
-      ctx.fillStyle="#888";ctx.font="bold 13px monospace";
-      ctx.fillText("SIN ARMA · recoge pickups",CW-194,26);
+      ctx.fillStyle="#888";ctx.font="bold 12px monospace";
+      ctx.fillText("SIN ARMA",CW-190,24);
       ctx.font="10px monospace";ctx.fillStyle="#666";
-      ctx.fillText("Click izq / F para disparar",CW-194,44);
+      ctx.fillText("Recoge pickups · click izq",CW-190,40);
     }
+
+    // === Inventario tipo Fortnite: 5 cuadritos abajo centrados ===
+    this._drawInventory(ctx);
+
     // Badge BETA
     ctx.save();
     ctx.fillStyle="#FFB020";
@@ -696,6 +720,67 @@ class Game{
     ctx.fillText("BETA",38,66);
     ctx.restore();
     ctx.textAlign="left";
+  }
+
+  _drawInventory(ctx){
+    const p=this.player; if(!p||!p.inventory) return;
+    const N=p.INV_SLOTS, size=42, gap=6;
+    const totalW = N*size + (N-1)*gap;
+    const x0 = (CW-totalW)/2;
+    const y0 = CH - size - 12;
+    ctx.save();
+    for(let i=0;i<N;i++){
+      const x=x0+i*(size+gap), y=y0;
+      const slot=p.inventory[i];
+      const active=(i===p.slot);
+      // Fondo
+      ctx.fillStyle = active ? "rgba(40,40,60,0.9)" : "rgba(20,20,30,0.78)";
+      drawRR(ctx,x,y,size,size,6); ctx.fill();
+      // Contorno (rareza si hay arma)
+      if(slot){
+        const rar=RARITIES[slot.type.rarity];
+        ctx.strokeStyle = active ? "#FFF" : rar.color;
+        ctx.lineWidth = active ? 2.5 : 1.8;
+        drawRR(ctx,x,y,size,size,6); ctx.stroke();
+        // Halo de rareza sutil
+        ctx.save();
+        const g=ctx.createRadialGradient(x+size/2,y+size/2,2,x+size/2,y+size/2,size*0.7);
+        g.addColorStop(0,rar.color+"33");
+        g.addColorStop(1,"rgba(0,0,0,0)");
+        ctx.fillStyle=g; drawRR(ctx,x,y,size,size,6); ctx.fill();
+        ctx.restore();
+        // Arma (silueta)
+        ctx.save();
+        ctx.translate(x+size/2,y+size/2);
+        ctx.fillStyle=slot.type.color;
+        ctx.fillRect(-11,-2.5,18,5);
+        ctx.fillStyle="#1A1A1A";
+        ctx.fillRect(-13,-1,4,6);
+        ctx.fillRect(7,-1.5,slot.type.barrelL*0.35,3);
+        ctx.restore();
+        // Munición
+        ctx.fillStyle="#FFF";ctx.font="bold 9px monospace";ctx.textAlign="right";
+        ctx.fillText(""+slot.ammo, x+size-4, y+size-4);
+        // Nombre corto cuando está activo
+        if(active){
+          ctx.fillStyle="#FFE070";ctx.font="bold 9px monospace";ctx.textAlign="center";
+          ctx.fillText(slot.type.name, x+size/2, y-5);
+        }
+      } else {
+        ctx.strokeStyle = active ? "#FFF" : "#555";
+        ctx.lineWidth = active ? 2 : 1;
+        drawRR(ctx,x,y,size,size,6); ctx.stroke();
+      }
+      // Número del slot
+      ctx.fillStyle= active?"#FFD700":"#888";
+      ctx.font="bold 10px monospace";ctx.textAlign="left";
+      ctx.fillText(""+(i+1), x+4, y+12);
+    }
+    // Hint
+    ctx.fillStyle="rgba(200,200,220,0.55)";
+    ctx.font="10px monospace"; ctx.textAlign="center";
+    ctx.fillText("1-5 / Q / rueda: cambiar · G: soltar", CW/2, y0-14);
+    ctx.restore();
   }
 
   drawSky(ctx,camX){

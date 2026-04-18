@@ -181,11 +181,109 @@ class CompanionOwl{
     this.battleTimer=1200; // 20 segundos
     this.targetEnemy=null;this.particles=[];
     this.facingRight=true;
+    // --- Sistema de ataque estilo Player (garras con drawSpeciesAttack) ---
     this.attackCooldown=0;
+    this.clawActive=false;
+    this.clawFrame=0;
+    // Fases reducidas (mitad del Player para que sean ágiles):
+    //   WINDUP  0..8  · DASH  8..20 · IMPACT 20..26 · RECOVERY 26..32
+    this.CL_WIND=8; this.CL_DASH=20; this.CL_IMP=26; this.CL_TOT=32;
+    this.clawStartX=0;this.clawStartY=0;
+    this.clawTargetX=0;this.clawTargetY=0;
+    this.clawEffects=[]; // {x,y,angle,timer,maxTimer,style,c1,c2}
+    this.trail=[];
+    this.windupParticles=[];
+    this._clawTarget=null;
   }
   spawn(px,py){
     this.x=px;this.y=py-40;this.active=true;this.alpha=0;
     for(let i=0;i<12;i++){const a=(i/12)*Math.PI*2,s=1.5+Math.random()*2;this.particles.push({x:this.x,y:this.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,color:pick(["#FFD700","#AADDFF","#FFF","#88FFAA"]),life:40,maxLife:40,alpha:1,r:2+Math.random()*3});}
+  }
+  _pickTarget(enemies){
+    // Incluye bots de BR como posibles objetivos si estamos en ese modo
+    const g = window._gameRef;
+    let best=null,minD=320;
+    if(enemies){
+      for(const e of enemies){
+        if(!e.alive||e.immuneToClaw)continue;
+        const d=dist(this.x,this.y,e.x+e.w/2,e.y+e.h/2);
+        if(d<minD){minD=d;best=e;}
+      }
+    }
+    if(g && g.bots){
+      for(const b of g.bots){
+        if(!b.alive) continue;
+        const d=dist(this.x,this.y,b.x+b.w/2,b.y+b.h/2);
+        if(d<minD){minD=d;best=b;}
+      }
+    }
+    return best;
+  }
+  _startClaw(target){
+    this.clawActive=true;this.clawFrame=0;
+    this.clawStartX=this.x;this.clawStartY=this.y;
+    const tx=target.x+(target.w||24)/2, ty=target.y+(target.h||24)/2;
+    this.clawTargetX=tx;this.clawTargetY=ty;
+    this.facingRight = tx>this.x;
+    this._clawTarget=target;
+    SFX.playSpecies(this.species.attackStyle);
+  }
+  _updateClaw(){
+    if(!this.clawActive) return;
+    this.clawFrame++;
+    const f=this.clawFrame, sp=this.species;
+    if(f<=this.CL_WIND){
+      // windup: leve retroceso + partículas convergentes
+      const t=f/this.CL_WIND;
+      const back=this.facingRight?-3:3;
+      this.x = lerp(this.clawStartX, this.clawStartX+back, t);
+      this.y = this.clawStartY - Math.sin(t*Math.PI)*2;
+      if(f%2===0){
+        for(let i=0;i<2;i++){
+          const a=Math.random()*Math.PI*2, r=22+Math.random()*10;
+          this.windupParticles.push({
+            ox:this.clawStartX+Math.cos(a)*r,
+            oy:this.clawStartY+Math.sin(a)*r,
+            color: i===0?sp.atkColor:sp.atkColor2,
+            life:8+Math.floor(Math.random()*5),
+            r:1.4+Math.random()*1.4, a:0.5-Math.random(), b:0.5-Math.random()
+          });
+        }
+      }
+    } else if(f<=this.CL_DASH){
+      const t=(f-this.CL_WIND)/(this.CL_DASH-this.CL_WIND);
+      const ease=t<0.5?8*t*t*t*t:1-Math.pow(-2*t+2,4)/2;
+      this.x = lerp(this.clawStartX,this.clawTargetX,ease);
+      this.y = lerp(this.clawStartY,this.clawTargetY,ease);
+      if(f%2===0) this.trail.push({x:this.x,y:this.y,facing:this.facingRight,life:8,maxLife:8});
+    } else if(f<=this.CL_IMP){
+      if(f===this.CL_DASH+1){
+        const angle=Math.atan2(this.clawTargetY-this.clawStartY,this.clawTargetX-this.clawStartX);
+        const ex=this.clawTargetX,ey=this.clawTargetY;
+        if(this._clawTarget && this._clawTarget.alive){
+          // Aplicar daño
+          if(typeof this._clawTarget.takeHit==="function"){
+            this._clawTarget.takeHit(4, window._gameRef, window._gameRef?.player);
+          } else {
+            this._clawTarget.alive=false;
+          }
+          SFX.playClawKill();
+        }
+        this.clawEffects.push({x:ex,y:ey,angle,timer:0,maxTimer:24,
+          style:sp.attackStyle,c1:sp.atkColor,c2:sp.atkColor2});
+        this.clawEffects.push({x:ex+rnd(-5,5),y:ey+rnd(-5,5),angle:angle+0.6,timer:0,maxTimer:14,
+          style:sp.attackStyle,c1:sp.atkColor2,c2:sp.atkColor});
+      }
+      const t=(f-this.CL_DASH)/(this.CL_IMP-this.CL_DASH);
+      const push=this.facingRight?-2:2;
+      this.x=this.clawTargetX+push*Math.sin(t*Math.PI);
+      this.y=this.clawTargetY-Math.sin(t*Math.PI)*2;
+    }
+    if(this.clawFrame>=this.CL_TOT){
+      this.clawActive=false;
+      this.attackCooldown=30;
+      this._clawTarget=null;
+    }
   }
   update(enemies,playerX,playerY){
     if(!this.active)return;
@@ -195,26 +293,35 @@ class CompanionOwl{
     if(this.battleTimer<=0){this.alpha=Math.max(0,this.alpha-0.03);if(this.alpha<=0)this.active=false;return;}
     if(this.attackCooldown>0)this.attackCooldown--;
 
-    // Buscar enemigo más cercano vivo
-    let nearest=null,minD=300;
-    for(const e of enemies){
-      if(!e.alive||e.immuneToClaw)continue;
-      const d=dist(this.x,this.y,e.x+e.w/2,e.y+e.h/2);
-      if(d<minD){minD=d;nearest=e;}
+    // Avanzar efectos de garra y estela
+    for(const e of this.clawEffects) e.timer++;
+    this.clawEffects = this.clawEffects.filter(e=>e.timer<=e.maxTimer);
+    for(const t of this.trail) t.life--;
+    this.trail = this.trail.filter(t=>t.life>0);
+    for(const p of this.windupParticles) p.life--;
+    this.windupParticles = this.windupParticles.filter(p=>p.life>0);
+
+    if(this.clawActive){
+      this._updateClaw();
+      // seguir partículas orbitales
+      for(const p of this.particles){p.x+=p.vx;p.y+=p.vy;p.life--;p.alpha=p.life/p.maxLife;}
+      this.particles=this.particles.filter(p=>p.life>0);
+      return;
     }
+
+    // Buscar objetivo
+    const nearest = this._pickTarget(enemies);
     this.targetEnemy=nearest;
 
     if(nearest){
-      // Volar hacia el enemigo
-      const ex=nearest.x+nearest.w/2,ey=nearest.y+nearest.h/2;
+      const ex=nearest.x+(nearest.w||24)/2, ey=nearest.y+(nearest.h||24)/2;
       const dx=ex-this.x,dy=ey-this.y,d=Math.hypot(dx,dy)||1;
       const spd=3.5;
       this.x+=dx/d*spd;this.y+=dy/d*spd;
       this.facingRight=dx>0;
-      // Matar al contacto
-      if(d<28&&this.attackCooldown===0){nearest.alive=false;this.attackCooldown=40;SFX.playClawKill();}
+      // Lanzar ataque cuando está en rango
+      if(d<64 && this.attackCooldown===0){ this._startClaw(nearest); }
     } else {
-      // Flotar alrededor del jugador
       const offsetX=-35-this.index*32;
       const targetX=playerX+offsetX;
       const targetY=playerY-40+Math.sin(this.animFrame*0.07+this.index)*10;
@@ -230,19 +337,56 @@ class CompanionOwl{
     if(!this.active)return;
     for(const p of this.particles){ctx.save();ctx.globalAlpha=p.alpha;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();ctx.restore();}
 
-    // Halo de combate
-    if(this.targetEnemy){
-      ctx.save();ctx.globalAlpha=this.alpha*0.25;
-      const g=ctx.createRadialGradient(this.x,this.y,2,this.x,this.y,24);
-      g.addColorStop(0,"#FF8820");g.addColorStop(1,"transparent");
-      ctx.fillStyle=g;ctx.beginPath();ctx.arc(this.x,this.y,24,0,Math.PI*2);ctx.fill();
+    // Motion trail (detrás, durante dash)
+    for(const t of this.trail){
+      const a=(t.life/t.maxLife)*0.45*this.alpha;
+      drawOwl(ctx,t.x,t.y,t.facing,this.species,this.animFrame,a);
+    }
+    // Partículas de windup convergentes
+    for(const p of this.windupParticles){
+      ctx.save();ctx.globalAlpha=Math.min(1,p.life/8)*this.alpha;
+      ctx.fillStyle=p.color;
+      ctx.beginPath();ctx.arc(p.ox,p.oy,p.r,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+    // Aura durante windup
+    if(this.clawActive && this.clawFrame<=this.CL_WIND){
+      const t=this.clawFrame/this.CL_WIND;
+      ctx.save();ctx.globalAlpha=0.5*t*this.alpha;
+      const g=ctx.createRadialGradient(this.x,this.y,2,this.x,this.y,22);
+      g.addColorStop(0,this.species.atkColor);g.addColorStop(1,"transparent");
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(this.x,this.y,22,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+    // Streak durante dash
+    if(this.clawActive && this.clawFrame>this.CL_WIND && this.clawFrame<=this.CL_DASH){
+      const ang=Math.atan2(this.clawTargetY-this.clawStartY,this.clawTargetX-this.clawStartX);
+      ctx.save();ctx.translate(this.x,this.y);ctx.rotate(ang);
+      ctx.globalAlpha=0.45*this.alpha;
+      const grd=ctx.createLinearGradient(-30,0,8,0);
+      grd.addColorStop(0,"transparent");grd.addColorStop(1,this.species.atkColor);
+      ctx.fillStyle=grd;
+      ctx.beginPath();ctx.moveTo(-30,-4);ctx.lineTo(8,0);ctx.lineTo(-30,4);ctx.closePath();ctx.fill();
       ctx.restore();
     }
 
-    // Dibujar al tamaño del jugador (escala completa de la especie)
+    // Halo de combate cuando persigue
+    if(this.targetEnemy && !this.clawActive){
+      ctx.save();ctx.globalAlpha=this.alpha*0.25;
+      const g=ctx.createRadialGradient(this.x,this.y,2,this.x,this.y,22);
+      g.addColorStop(0,"#FF8820");g.addColorStop(1,"transparent");
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(this.x,this.y,22,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+
     drawOwl(ctx,this.x,this.y,this.facingRight,this.species,this.animFrame,this.alpha*0.92);
 
-    // Barra de vida (tiempo restante)
+    // Efectos de ataque por especie (igual que el Player)
+    for(const e of this.clawEffects){
+      drawSpeciesAttack(ctx,e.x,e.y,e.angle,e.style,e.timer/e.maxTimer,e.c1,e.c2);
+    }
+
+    // Barra de tiempo restante
     const barW=28,barH=4;
     const bx=this.x-barW/2,by=this.y+20;
     const frac=this.battleTimer/1200;
@@ -275,11 +419,47 @@ class Player{
     this.windupParticles=[];
     this.screenShake=0;
     this.killFx=[]; // animaciones de muerte de enemigos
-    this.weapon=null; // {type, ammo}
+    // --- Inventario tipo Fortnite (5 slots) ---
+    this.INV_SLOTS=5;
+    this.inventory=new Array(this.INV_SLOTS).fill(null); // cada slot: null o {type, ammo}
+    this.slot=0; // slot activo
     this.fireCooldown=0;
   }
+  // Getter/setter compat: el resto del código lee/asigna player.weapon
+  get weapon(){ return this.inventory[this.slot]; }
+  set weapon(v){ this.inventory[this.slot]=v; }
   equipWeapon(type){
-    this.weapon={type, ammo:type.ammo};
+    // 1) Si ya tenemos este mismo tipo en algún slot, recargar munición y cambiar a ese slot
+    for(let i=0;i<this.INV_SLOTS;i++){
+      const s=this.inventory[i];
+      if(s && s.type.id===type.id){ s.ammo=Math.min(type.ammo, s.ammo + Math.ceil(type.ammo*0.5)); this.slot=i; return; }
+    }
+    // 2) Buscar primer slot vacío
+    for(let i=0;i<this.INV_SLOTS;i++){
+      if(!this.inventory[i]){ this.inventory[i]={type,ammo:type.ammo}; this.slot=i; return; }
+    }
+    // 3) Si todo está lleno, reemplazar el slot actual
+    this.inventory[this.slot]={type,ammo:type.ammo};
+  }
+  selectSlot(i){
+    i = ((i%this.INV_SLOTS)+this.INV_SLOTS)%this.INV_SLOTS;
+    if(this.slot!==i){ this.slot=i; SFX.tone(880,0.04,"square",0.08); }
+  }
+  cycleSlot(dir){
+    // Sólo avanzar entre slots ocupados; si no hay ninguno, sólo cambia el índice
+    const has=this.inventory.some(s=>s);
+    let i=this.slot;
+    for(let k=0;k<this.INV_SLOTS;k++){
+      i=((i+dir)%this.INV_SLOTS+this.INV_SLOTS)%this.INV_SLOTS;
+      if(!has || this.inventory[i]){ this.selectSlot(i); return; }
+    }
+  }
+  dropCurrentSlot(game){
+    const s=this.inventory[this.slot]; if(!s||!game) return;
+    const wp=new WeaponPickup(s.type, this.x+16, this.y+10);
+    wp.grounded=false; wp.vy=-3;
+    if(game.weaponPickups) game.weaponPickups.push(wp);
+    this.inventory[this.slot]=null;
   }
   fireWeapon(game){
     if(!this.weapon||this.fireCooldown>0||this.weapon.ammo<=0) return;
@@ -311,7 +491,9 @@ class Player{
     this.vx-=dirx*0.8;
     this.screenShake=Math.max(this.screenShake,4);
     if(this.weapon.ammo<=0){
-      setTimeout(()=>{this.weapon=null;},80);
+      // Capturar el slot actual: si el jugador cambia antes del timeout, no vaciar el slot equivocado.
+      const s=this.slot;
+      setTimeout(()=>{ this.inventory[s]=null; },80);
       SFX.tone(200,0.15,"sawtooth",0.08);
     }
   }
